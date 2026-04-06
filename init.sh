@@ -191,6 +191,48 @@ else
   log "fd already installed: $(fd --version)"
 fi
 
+# ── eza (modern ls replacement) ──────────────────────────────────────────────
+step "eza"
+if ! ok eza; then
+  TAG=$(latest_gh_tag "eza-community/eza")
+  install_binary_from_tar \
+    "https://github.com/eza-community/eza/releases/download/${TAG}/eza_${ARCH_MUSL}.tar.gz" \
+    "eza"
+  log "eza installed: $(eza --version | head -1)"
+else
+  log "eza already installed: $(eza --version | head -1)"
+fi
+
+# ── FiraCode Nerd Font Mono ───────────────────────────────────────────────────
+step "FiraCode Nerd Font Mono"
+FONT_DIR="$HOME/.local/share/fonts"
+if ! fc-list | grep -qi "FiraCode Nerd"; then
+  mkdir -p "$FONT_DIR"
+  tmp=$(mktemp -d)
+  curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
+    -o "$tmp/FiraCode.zip"
+  unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
+  cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
+  fc-cache -f "$FONT_DIR"
+  rm -rf "$tmp"
+  log "FiraCode Nerd Font Mono installed"
+else
+  log "FiraCode Nerd Font Mono already installed"
+fi
+
+# ── tree-sitter CLI (nvim-treesitter parser compilation) ─────────────────────
+step "tree-sitter"
+if ! ok tree-sitter; then
+  TAG=$(latest_gh_tag "tree-sitter/tree-sitter")
+  curl -fsSL "https://github.com/tree-sitter/tree-sitter/releases/download/${TAG}/tree-sitter-linux-x64.gz" \
+    | gunzip -c > /tmp/tree-sitter
+  sudo install -m 755 /tmp/tree-sitter /usr/local/bin/tree-sitter
+  rm /tmp/tree-sitter
+  log "tree-sitter installed: $(tree-sitter --version)"
+else
+  log "tree-sitter already installed: $(tree-sitter --version)"
+fi
+
 # ── ripgrep (Telescope live_grep) ─────────────────────────────────────────────
 step "ripgrep"
 if ! ok rg; then
@@ -372,6 +414,8 @@ add_to_zshrc() {
 
 add_to_zshrc 'export PATH="$HOME/.local/bin:$PATH"'  '$HOME/.local/bin'
 add_to_zshrc 'eval "$(starship init zsh)"'            'starship init zsh'
+add_to_zshrc 'alias vim="nvim"'                       'alias vim="nvim"'
+add_to_zshrc 'alias ls="eza --icons=always"'          'alias ls="eza'
 
 # zsh-syntax-highlighting: catppuccin theme must be sourced BEFORE the plugin
 add_to_zshrc \
