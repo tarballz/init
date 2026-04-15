@@ -35,14 +35,23 @@ function Test-DeveloperMode {
 }
 
 function New-Symlink {
-    param([string]$Path, [string]$Target)
+    param([string]$Path, [string]$Target, [string]$MigrateTo = '')
     if (Test-Path $Path) {
         if ((Get-Item $Path).LinkType -eq 'SymbolicLink') {
             Skip "Already symlinked: $Path"
+            return
+        }
+        if ($MigrateTo) {
+            if ($DryRun) {
+                Would "Move existing $Path -> $MigrateTo, then symlink $Path -> $Target"
+                return
+            }
+            Move-Item -Path $Path -Destination $MigrateTo
+            Done "Migrated existing file to $MigrateTo"
         } else {
             Warn "$Path exists but is not a symlink — skipping. Rename it to proceed."
+            return
         }
-        return
     }
     if ($DryRun) {
         Would "New-Item -ItemType SymbolicLink -Path $Path -Target $Target"
@@ -205,7 +214,7 @@ Set-ItemProperty -Path $path -Name AllowAllTrustedApps               -Value 1 -T
 
 # ─── Dotfile symlinks ──────────────────────────────────────────────────────────
 Step "Dotfile symlinks"
-New-Symlink -Path $PROFILE                          -Target "$RepoRoot\profile.ps1"
+New-Symlink -Path $PROFILE -Target "$RepoRoot\profile.ps1" -MigrateTo (Join-Path $HOME 'profile.local.ps1')
 New-Symlink -Path "$env:LOCALAPPDATA\nvim\init.lua" -Target "$RepoRoot\init.lua"
 
 # ─── Done ──────────────────────────────────────────────────────────────────────
