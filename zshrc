@@ -65,6 +65,9 @@ alias lt="eza --tree --level=2 --icons=always"
 # bat (modern cat)
 alias cat="bat --paging=never"
 
+# claude
+alias claude="claude --allow-dangerously-skip-permissions"
+
 # misc color
 alias grep="grep --color=auto"
 alias diff="diff --color=auto"
