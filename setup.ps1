@@ -115,6 +115,9 @@ $packages = [ordered]@{
     'zellij'           = 'zellij'
     # System monitoring
     'bottom'           = 'btm'
+    # Tree-sitter CLI + gcc (needed for nvim treesitter parser compilation)
+    'tree-sitter'      = 'tree-sitter'
+    'gcc'              = 'gcc'
     # Nerd Font — no binary, scoop handles idempotency
     'JetBrainsMono-NF' = ''
 }
