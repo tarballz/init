@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Fresh system bootstrap script
-# Installs: zsh, uv, ruff, pyright, starship, zellij, claude, neovim, bottom
-# + neovim deps (fd, ripgrep, gcc, make, git)
-# + catppuccin mocha theme for: starship, zellij, bottom, zsh-syntax-highlighting
+# Installs: zsh, uv, ruff, pyright, starship, zellij, claude, neovim, bottom,
+#           bat, zoxide, fzf, eza, fd, ripgrep, zsh-autosuggestions,
+#           zsh-syntax-highlighting, FiraCode Nerd Font, tree-sitter CLI
+# Symlinks: ~/.zshrc -> <repo>/zshrc, ~/.config/nvim/init.lua -> <repo>/init.lua
+# Catppuccin mocha theme for: starship, zellij, bottom, bat, zsh-syntax-highlighting
 #   (neovim catppuccin is handled by init.lua via lazy.nvim)
 set -euo pipefail
 
@@ -242,6 +244,67 @@ else
   log "ripgrep already installed: $(rg --version | head -1)"
 fi
 
+# ── bat (modern cat with syntax highlighting) ────────────────────────────────
+step "bat"
+if ! ok bat; then
+  if ok apt-get; then
+    $PKG_INSTALL bat
+    # Ubuntu/Debian installs it as 'batcat' — create a symlink
+    if ok batcat && ! ok bat; then
+      mkdir -p "$HOME/.local/bin"
+      ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+      log "Created symlink: bat -> batcat"
+    fi
+  elif ok dnf; then
+    $PKG_INSTALL bat
+  elif ok pacman; then
+    $PKG_INSTALL bat
+  fi
+  log "bat installed"
+else
+  log "bat already installed: $(bat --version)"
+fi
+
+# ── zoxide (smarter cd) ──────────────────────────────────────────────────────
+step "zoxide"
+if ! ok zoxide; then
+  curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+  log "zoxide installed"
+else
+  log "zoxide already installed: $(zoxide --version)"
+fi
+
+# ── fzf (fuzzy finder) ───────────────────────────────────────────────────────
+step "fzf"
+if [ ! -d "$HOME/.fzf" ]; then
+  git clone --depth=1 https://github.com/junegunn/fzf.git "$HOME/.fzf"
+  "$HOME/.fzf/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
+  log "fzf installed"
+else
+  log "fzf already present at ~/.fzf"
+fi
+
+# ── zsh-autosuggestions ──────────────────────────────────────────────────────
+step "zsh-autosuggestions"
+ZSH_AUTOSUGGEST_DIR="$HOME/.zsh/zsh-autosuggestions"
+mkdir -p "$HOME/.zsh"
+if [ ! -d "$ZSH_AUTOSUGGEST_DIR" ]; then
+  git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git "$ZSH_AUTOSUGGEST_DIR"
+  log "zsh-autosuggestions cloned"
+else
+  log "zsh-autosuggestions already present"
+fi
+
+# ── zsh-history-substring-search ─────────────────────────────────────────────
+step "zsh-history-substring-search"
+ZSH_HSS_DIR="$HOME/.zsh/zsh-history-substring-search"
+if [ ! -d "$ZSH_HSS_DIR" ]; then
+  git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search.git "$ZSH_HSS_DIR"
+  log "zsh-history-substring-search cloned"
+else
+  log "zsh-history-substring-search already present"
+fi
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Catppuccin themes (flavor: mocha — matches neovim config)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -337,6 +400,24 @@ else
   log "Catppuccin bottom theme already present"
 fi
 
+# ── Catppuccin: bat ──────────────────────────────────────────────────────────
+step "Catppuccin: bat"
+if ok bat; then
+  BAT_THEMES_DIR="$(bat --config-dir)/themes"
+  mkdir -p "$BAT_THEMES_DIR"
+  if [ ! -f "$BAT_THEMES_DIR/Catppuccin Mocha.tmTheme" ]; then
+    curl -fsSL \
+      "${CATPPUCCIN_RAW}/bat/main/themes/Catppuccin%20Mocha.tmTheme" \
+      -o "$BAT_THEMES_DIR/Catppuccin Mocha.tmTheme"
+    bat cache --build >/dev/null
+    log "Catppuccin Mocha bat theme installed"
+  else
+    log "Catppuccin bat theme already present"
+  fi
+else
+  warn "bat not on PATH yet — skipping bat theme (re-run after restarting shell)"
+fi
+
 # ── Catppuccin: zsh-syntax-highlighting ──────────────────────────────────────
 step "Catppuccin: zsh-syntax-highlighting"
 ZSH_PLUGINS_DIR="$HOME/.zsh"
@@ -364,73 +445,41 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Configs repo
+# Dotfile symlinks (~/.zshrc, ~/.config/nvim/init.lua)
 # ══════════════════════════════════════════════════════════════════════════════
-step "Configs repo"
-CONFIGS_DIR="$HOME/code/configs"
+REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
-if [ ! -d "$CONFIGS_DIR" ]; then
-  mkdir -p "$HOME/code"
-  git clone git@github.com:tarballz/configs.git "$CONFIGS_DIR"
-  log "Configs repo cloned to $CONFIGS_DIR"
-else
-  log "Configs repo already present"
-fi
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Neovim config
-# ══════════════════════════════════════════════════════════════════════════════
-step "Neovim config"
-NVIM_CONFIG_DIR="$HOME/.config/nvim"
-
-if [ -f "$CONFIGS_DIR/init.lua" ]; then
-  mkdir -p "$NVIM_CONFIG_DIR"
-  if [ -e "$NVIM_CONFIG_DIR/init.lua" ] && [ ! -L "$NVIM_CONFIG_DIR/init.lua" ]; then
-    warn "$NVIM_CONFIG_DIR/init.lua exists and is not a symlink — skipping (back it up manually)"
-  elif [ ! -e "$NVIM_CONFIG_DIR/init.lua" ]; then
-    ln -sf "$CONFIGS_DIR/init.lua" "$NVIM_CONFIG_DIR/init.lua"
-    log "Linked $CONFIGS_DIR/init.lua -> $NVIM_CONFIG_DIR/init.lua"
+link_dotfile() {
+  # $1=source (in repo)  $2=target (in $HOME / .config)
+  local src="$1" dest="$2"
+  mkdir -p "$(dirname "$dest")"
+  if [ -L "$dest" ]; then
+    ln -sfn "$src" "$dest"
+    log "Symlink refreshed: $dest -> $src"
+  elif [ -e "$dest" ]; then
+    local backup="${dest}.backup.$(date +%Y%m%d-%H%M%S)"
+    mv "$dest" "$backup"
+    ln -s "$src" "$dest"
+    warn "Existing $dest backed up to $backup"
+    log "Linked $src -> $dest"
   else
-    log "Neovim config symlink already in place"
-  fi
-else
-  warn "$CONFIGS_DIR/init.lua not found — something went wrong with the configs clone"
-fi
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Shell config (~/.zshrc)
-# ══════════════════════════════════════════════════════════════════════════════
-step "Shell config"
-ZSHRC="$HOME/.zshrc"
-touch "$ZSHRC"
-
-add_to_zshrc() {
-  local line="$1" marker="$2"
-  if ! grep -qF "$marker" "$ZSHRC" 2>/dev/null; then
-    echo "$line" >> "$ZSHRC"
-    log "Added to ~/.zshrc: $line"
+    ln -s "$src" "$dest"
+    log "Linked $src -> $dest"
   fi
 }
 
-add_to_zshrc 'export PATH="$HOME/.local/bin:$PATH"'  '$HOME/.local/bin'
-add_to_zshrc 'eval "$(starship init zsh)"'            'starship init zsh'
-add_to_zshrc 'alias vim="nvim"'                       'alias vim="nvim"'
-add_to_zshrc 'alias ls="eza --icons=always"'          'alias ls="eza'
+step "Shell config (~/.zshrc)"
+link_dotfile "$REPO_DIR/zshrc" "$HOME/.zshrc"
 
-# zsh-syntax-highlighting: catppuccin theme must be sourced BEFORE the plugin
-add_to_zshrc \
-  "source \"\$HOME/.zsh/catppuccin-zsh-syntax-highlighting/catppuccin_${CATPPUCCIN_FLAVOR}-zsh-syntax-highlighting.zsh\"" \
-  "catppuccin_${CATPPUCCIN_FLAVOR}-zsh-syntax-highlighting"
-add_to_zshrc \
-  'source "$HOME/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"' \
-  'zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
+step "Neovim config"
+link_dotfile "$REPO_DIR/init.lua" "$HOME/.config/nvim/init.lua"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo -e "\n${BLUE}════════════════════════════════${NC}"
 echo -e "${BLUE}  Bootstrap complete             ${NC}"
 echo -e "${BLUE}════════════════════════════════${NC}\n"
 
-TOOLS=(zsh uv ruff pyright starship claude nvim zellij btm fd rg)
+TOOLS=(zsh uv ruff pyright starship claude nvim zellij btm fd rg bat zoxide fzf eza)
 for t in "${TOOLS[@]}"; do
   if ok "$t"; then
     echo -e "  ${GREEN}✓${NC} $t"
