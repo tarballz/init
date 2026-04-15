@@ -9,7 +9,7 @@
     Print what would be done without making any changes.
 .NOTES
     Run as a regular user (Scoop does not require admin).
-    Symlinking requires Developer Mode or an elevated shell.
+    The Developer Mode step triggers a UAC prompt to write one registry key.
 #>
 param(
     [switch]$DryRun
@@ -26,6 +26,13 @@ function Done  { param($m) Write-Host "    $m"   -ForegroundColor Green }
 function Skip  { param($m) Write-Host "    (skip) $m"     -ForegroundColor DarkGray }
 function Warn  { param($m) Write-Host "    (warn) $m"     -ForegroundColor Yellow }
 function Would { param($m) Write-Host "    (dry-run) $m"  -ForegroundColor Magenta }
+
+function Test-DeveloperMode {
+    $key = Get-ItemProperty `
+        -Path  'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' `
+        -ErrorAction SilentlyContinue
+    return $key -and $key.AllowDevelopmentWithoutDevLicense -eq 1
+}
 
 function New-Symlink {
     param([string]$Path, [string]$Target)
@@ -174,9 +181,29 @@ if (Test-Path $fragmentFile) {
     Done "Installed — restart Windows Terminal, then set Catppuccin Mocha as your color scheme"
 }
 
+# ─── Developer Mode ────────────────────────────────────────────────────────────
+# Required for creating symlinks as a normal user. Triggers a UAC prompt.
+Step "Developer Mode"
+if (Test-DeveloperMode) {
+    Skip "Already enabled"
+} elseif ($DryRun) {
+    Would "Enable Developer Mode (AllowDevelopmentWithoutDevLicense=1 in HKLM — triggers UAC)"
+} else {
+    $regCmd = @'
+$path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
+Set-ItemProperty -Path $path -Name AllowDevelopmentWithoutDevLicense -Value 1 -Type DWord
+Set-ItemProperty -Path $path -Name AllowAllTrustedApps               -Value 1 -Type DWord
+'@
+    Start-Process pwsh -Verb RunAs -ArgumentList "-NoProfile -Command $regCmd" -Wait
+    if (Test-DeveloperMode) {
+        Done "Developer Mode enabled"
+    } else {
+        Warn "Could not confirm Developer Mode — symlinks may fail. Enable manually: Settings > Privacy & Security > For developers"
+    }
+}
+
 # ─── Dotfile symlinks ──────────────────────────────────────────────────────────
-# Requires Developer Mode (Settings > Privacy & Security > For developers) or
-# an elevated (admin) shell to create symlinks on Windows.
 Step "Dotfile symlinks"
 New-Symlink -Path $PROFILE                          -Target "$RepoRoot\profile.ps1"
 New-Symlink -Path "$env:LOCALAPPDATA\nvim\init.lua" -Target "$RepoRoot\init.lua"
