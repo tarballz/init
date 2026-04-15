@@ -6,17 +6,33 @@
 # Symlinks: ~/.zshrc -> <repo>/zshrc, ~/.config/nvim/init.lua -> <repo>/init.lua
 # Catppuccin mocha theme for: starship, zellij, bottom, bat, zsh-syntax-highlighting
 #   (neovim catppuccin is handled by init.lua via lazy.nvim)
+# Usage: ./init.sh [--dry-run]
 set -euo pipefail
 
 CATPPUCCIN_FLAVOR="mocha"
 
+# ── Flags ─────────────────────────────────────────────────────────────────────
+DRY_RUN=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=true ;;
+    *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+  esac
+done
+
 # ── Colors ────────────────────────────────────────────────────────────────────
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; RED='\033[0;31m'; NC='\033[0m'
-log()  { echo -e "${GREEN}[+]${NC} $1"; }
-warn() { echo -e "${YELLOW}[!]${NC} $1"; }
-err()  { echo -e "${RED}[✗]${NC} $1" >&2; }
-step() { echo -e "\n${BLUE}===>${NC} $1"; }
-ok()   { command -v "$1" &>/dev/null; }
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; RED='\033[0;31m'
+MAGENTA='\033[0;35m'; NC='\033[0m'
+log()   { echo -e "${GREEN}[+]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
+err()   { echo -e "${RED}[✗]${NC} $1" >&2; }
+step()  { echo -e "\n${BLUE}===>${NC} $1"; }
+would() { echo -e "${MAGENTA}[dry-run]${NC} $1"; }
+ok()    { command -v "$1" &>/dev/null; }
+
+if [ "$DRY_RUN" = true ]; then
+  echo -e "\n${MAGENTA}[DRY RUN] No changes will be made.${NC}\n"
+fi
 
 # ── Architecture ──────────────────────────────────────────────────────────────
 ARCH=$(uname -m)
@@ -49,40 +65,93 @@ latest_gh_tag() {
 install_binary_from_tar() {
   # $1=url  $2=binary-name  $3=dest (default /usr/local/bin)
   local url="$1" bin="$2" dest="${3:-/usr/local/bin}"
+  if [ "$DRY_RUN" = true ]; then
+    would "Download and install $bin from $url -> $dest/$bin"
+    return
+  fi
   local tmp; tmp=$(mktemp -d)
   curl -fsSL "$url" | tar -xz -C "$tmp"
   sudo install -m 755 "$(find "$tmp" -name "$bin" -type f | head -1)" "$dest/$bin"
   rm -rf "$tmp"
 }
 
+link_dotfile() {
+  # $1=source (in repo)  $2=target (in $HOME / .config)
+  local src="$1" dest="$2"
+  if [ "$DRY_RUN" = true ]; then
+    if [ -L "$dest" ]; then
+      log "(skip) Symlink already exists: $dest -> $(readlink "$dest")"
+    elif [ -e "$dest" ]; then
+      would "Backup $dest -> ${dest}.backup.TIMESTAMP, then ln -s $src $dest"
+    else
+      would "ln -s $src $dest"
+    fi
+    return
+  fi
+  mkdir -p "$(dirname "$dest")"
+  if [ -L "$dest" ]; then
+    ln -sfn "$src" "$dest"
+    log "Symlink refreshed: $dest -> $src"
+  elif [ -e "$dest" ]; then
+    local backup="${dest}.backup.$(date +%Y%m%d-%H%M%S)"
+    mv "$dest" "$backup"
+    ln -s "$src" "$dest"
+    warn "Existing $dest backed up to $backup"
+    log "Linked $src -> $dest"
+  else
+    ln -s "$src" "$dest"
+    log "Linked $src -> $dest"
+  fi
+}
+
 # ── Update package lists ──────────────────────────────────────────────────────
 step "Updating package lists"
-$PKG_UPDATE
+if [ "$DRY_RUN" = true ]; then
+  would "$PKG_UPDATE"
+else
+  $PKG_UPDATE
+fi
 
 # ── Base build tools & git ────────────────────────────────────────────────────
 step "Base build dependencies"
-if ok apt-get; then
-  $PKG_INSTALL git curl wget unzip gcc make
-elif ok dnf; then
-  $PKG_INSTALL git curl wget unzip gcc make
-elif ok pacman; then
-  $PKG_INSTALL git curl wget unzip base-devel
+if [ "$DRY_RUN" = true ]; then
+  if ok apt-get || ok dnf; then
+    would "$PKG_INSTALL git curl wget unzip gcc make"
+  elif ok pacman; then
+    would "$PKG_INSTALL git curl wget unzip base-devel"
+  fi
+else
+  if ok apt-get; then
+    $PKG_INSTALL git curl wget unzip gcc make
+  elif ok dnf; then
+    $PKG_INSTALL git curl wget unzip gcc make
+  elif ok pacman; then
+    $PKG_INSTALL git curl wget unzip base-devel
+  fi
+  log "Base dependencies ready"
 fi
-log "Base dependencies ready"
 
 # ── zsh ───────────────────────────────────────────────────────────────────────
 step "zsh"
 if ! ok zsh; then
-  $PKG_INSTALL zsh
-  log "zsh installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL zsh"
+  else
+    $PKG_INSTALL zsh
+    log "zsh installed"
+  fi
 else
   log "zsh already installed: $(zsh --version)"
 fi
 
 if [ "$SHELL" != "$(command -v zsh)" ]; then
-  log "Setting zsh as default shell (you may be prompted for your password)"
-  chsh -s "$(command -v zsh)"
-  warn "Log out and back in for the shell change to take effect"
+  if [ "$DRY_RUN" = true ]; then
+    would "chsh -s $(command -v zsh)"
+  else
+    log "Setting zsh as default shell (you may be prompted for your password)"
+    chsh -s "$(command -v zsh)"
+    warn "Log out and back in for the shell change to take effect"
+  fi
 else
   log "zsh is already the default shell"
 fi
@@ -90,9 +159,13 @@ fi
 # ── uv ────────────────────────────────────────────────────────────────────────
 step "uv"
 if ! ok uv; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
-  log "uv installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "curl -LsSf https://astral.sh/uv/install.sh | sh"
+  else
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+    log "uv installed"
+  fi
 else
   log "uv already installed: $(uv --version)"
 fi
@@ -102,8 +175,12 @@ export PATH="$HOME/.local/bin:$PATH"
 # ── ruff (via uv tool) ────────────────────────────────────────────────────────
 step "ruff"
 if ! ok ruff; then
-  uv tool install ruff
-  log "ruff installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "uv tool install ruff"
+  else
+    uv tool install ruff
+    log "ruff installed"
+  fi
 else
   log "ruff already installed: $(ruff --version)"
 fi
@@ -111,8 +188,12 @@ fi
 # ── pyright (via uv tool) ─────────────────────────────────────────────────────
 step "pyright"
 if ! ok pyright; then
-  uv tool install pyright
-  log "pyright installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "uv tool install pyright"
+  else
+    uv tool install pyright
+    log "pyright installed"
+  fi
 else
   log "pyright already installed: $(pyright --version)"
 fi
@@ -120,8 +201,12 @@ fi
 # ── starship ──────────────────────────────────────────────────────────────────
 step "starship"
 if ! ok starship; then
-  curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
-  log "starship installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "curl -fsSL https://starship.rs/install.sh | sh -s -- --yes"
+  else
+    curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+    log "starship installed"
+  fi
 else
   log "starship already installed: $(starship --version | head -1)"
 fi
@@ -129,8 +214,12 @@ fi
 # ── Claude Code ───────────────────────────────────────────────────────────────
 step "Claude Code"
 if ! ok claude; then
-  curl -fsSL https://claude.ai/install.sh | bash
-  log "Claude Code installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "curl -fsSL https://claude.ai/install.sh | bash"
+  else
+    curl -fsSL https://claude.ai/install.sh | bash
+    log "Claude Code installed"
+  fi
 else
   log "Claude Code already installed: $(claude --version 2>/dev/null || echo 'unknown version')"
 fi
@@ -138,12 +227,16 @@ fi
 # ── Neovim ────────────────────────────────────────────────────────────────────
 step "Neovim"
 if ! ok nvim; then
-  tmp=$(mktemp -d)
-  curl -fsSL "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${NVIM_ARCH}.tar.gz" \
-    | tar -xz -C "$tmp"
-  sudo cp -r "$tmp/nvim-linux-${NVIM_ARCH}/"* /usr/local/
-  rm -rf "$tmp"
-  log "Neovim installed: $(nvim --version | head -1)"
+  if [ "$DRY_RUN" = true ]; then
+    would "Download and install nvim-linux-${NVIM_ARCH}.tar.gz -> /usr/local/"
+  else
+    tmp=$(mktemp -d)
+    curl -fsSL "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${NVIM_ARCH}.tar.gz" \
+      | tar -xz -C "$tmp"
+    sudo cp -r "$tmp/nvim-linux-${NVIM_ARCH}/"* /usr/local/
+    rm -rf "$tmp"
+    log "Neovim installed: $(nvim --version | head -1)"
+  fi
 else
   log "Neovim already installed: $(nvim --version | head -1)"
 fi
@@ -151,11 +244,15 @@ fi
 # ── Zellij ────────────────────────────────────────────────────────────────────
 step "Zellij"
 if ! ok zellij; then
-  TAG=$(latest_gh_tag "zellij-org/zellij")
-  install_binary_from_tar \
-    "https://github.com/zellij-org/zellij/releases/download/${TAG}/zellij-${ARCH_MUSL}.tar.gz" \
-    "zellij"
-  log "Zellij installed: $(zellij --version)"
+  if [ "$DRY_RUN" = true ]; then
+    would "install_binary_from_tar zellij-org/zellij -> zellij-${ARCH_MUSL}.tar.gz"
+  else
+    TAG=$(latest_gh_tag "zellij-org/zellij")
+    install_binary_from_tar \
+      "https://github.com/zellij-org/zellij/releases/download/${TAG}/zellij-${ARCH_MUSL}.tar.gz" \
+      "zellij"
+    log "Zellij installed: $(zellij --version)"
+  fi
 else
   log "Zellij already installed: $(zellij --version)"
 fi
@@ -163,11 +260,15 @@ fi
 # ── Bottom (btm) ──────────────────────────────────────────────────────────────
 step "Bottom (btm)"
 if ! ok btm; then
-  TAG=$(latest_gh_tag "ClementTsang/bottom")
-  install_binary_from_tar \
-    "https://github.com/ClementTsang/bottom/releases/download/${TAG}/bottom_${ARCH_MUSL}.tar.gz" \
-    "btm"
-  log "Bottom installed: $(btm --version)"
+  if [ "$DRY_RUN" = true ]; then
+    would "install_binary_from_tar ClementTsang/bottom -> bottom_${ARCH_MUSL}.tar.gz"
+  else
+    TAG=$(latest_gh_tag "ClementTsang/bottom")
+    install_binary_from_tar \
+      "https://github.com/ClementTsang/bottom/releases/download/${TAG}/bottom_${ARCH_MUSL}.tar.gz" \
+      "btm"
+    log "Bottom installed: $(btm --version)"
+  fi
 else
   log "Bottom already installed: $(btm --version)"
 fi
@@ -175,20 +276,23 @@ fi
 # ── fd (Telescope file finder) ────────────────────────────────────────────────
 step "fd"
 if ! ok fd; then
-  if ok apt-get; then
-    $PKG_INSTALL fd-find
-    # Ubuntu/Debian installs it as 'fdfind' — create a symlink
-    if ok fdfind && ! ok fd; then
-      mkdir -p "$HOME/.local/bin"
-      ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
-      log "Created symlink: fd -> fdfind"
+  if [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL fd-find (+ symlink fdfind -> fd on Debian/Ubuntu)"
+  else
+    if ok apt-get; then
+      $PKG_INSTALL fd-find
+      if ok fdfind && ! ok fd; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+        log "Created symlink: fd -> fdfind"
+      fi
+    elif ok dnf; then
+      $PKG_INSTALL fd-find
+    elif ok pacman; then
+      $PKG_INSTALL fd
     fi
-  elif ok dnf; then
-    $PKG_INSTALL fd-find
-  elif ok pacman; then
-    $PKG_INSTALL fd
+    log "fd installed"
   fi
-  log "fd installed"
 else
   log "fd already installed: $(fd --version)"
 fi
@@ -196,11 +300,15 @@ fi
 # ── eza (modern ls replacement) ──────────────────────────────────────────────
 step "eza"
 if ! ok eza; then
-  TAG=$(latest_gh_tag "eza-community/eza")
-  install_binary_from_tar \
-    "https://github.com/eza-community/eza/releases/download/${TAG}/eza_${ARCH_MUSL}.tar.gz" \
-    "eza"
-  log "eza installed: $(eza --version | head -1)"
+  if [ "$DRY_RUN" = true ]; then
+    would "install_binary_from_tar eza-community/eza -> eza_${ARCH_MUSL}.tar.gz"
+  else
+    TAG=$(latest_gh_tag "eza-community/eza")
+    install_binary_from_tar \
+      "https://github.com/eza-community/eza/releases/download/${TAG}/eza_${ARCH_MUSL}.tar.gz" \
+      "eza"
+    log "eza installed: $(eza --version | head -1)"
+  fi
 else
   log "eza already installed: $(eza --version | head -1)"
 fi
@@ -209,15 +317,19 @@ fi
 step "FiraCode Nerd Font Mono"
 FONT_DIR="$HOME/.local/share/fonts"
 if ! fc-list | grep -qi "FiraCode Nerd"; then
-  mkdir -p "$FONT_DIR"
-  tmp=$(mktemp -d)
-  curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
-    -o "$tmp/FiraCode.zip"
-  unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
-  cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
-  fc-cache -f "$FONT_DIR"
-  rm -rf "$tmp"
-  log "FiraCode Nerd Font Mono installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "Download FiraCode.zip from nerd-fonts and install *Mono*.ttf -> $FONT_DIR/"
+  else
+    mkdir -p "$FONT_DIR"
+    tmp=$(mktemp -d)
+    curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
+      -o "$tmp/FiraCode.zip"
+    unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
+    cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
+    fc-cache -f "$FONT_DIR"
+    rm -rf "$tmp"
+    log "FiraCode Nerd Font Mono installed"
+  fi
 else
   log "FiraCode Nerd Font Mono already installed"
 fi
@@ -225,12 +337,16 @@ fi
 # ── tree-sitter CLI (nvim-treesitter parser compilation) ─────────────────────
 step "tree-sitter"
 if ! ok tree-sitter; then
-  TAG=$(latest_gh_tag "tree-sitter/tree-sitter")
-  curl -fsSL "https://github.com/tree-sitter/tree-sitter/releases/download/${TAG}/tree-sitter-linux-x64.gz" \
-    | gunzip -c > /tmp/tree-sitter
-  sudo install -m 755 /tmp/tree-sitter /usr/local/bin/tree-sitter
-  rm /tmp/tree-sitter
-  log "tree-sitter installed: $(tree-sitter --version)"
+  if [ "$DRY_RUN" = true ]; then
+    would "Download tree-sitter-linux-x64.gz -> /usr/local/bin/tree-sitter"
+  else
+    TAG=$(latest_gh_tag "tree-sitter/tree-sitter")
+    curl -fsSL "https://github.com/tree-sitter/tree-sitter/releases/download/${TAG}/tree-sitter-linux-x64.gz" \
+      | gunzip -c > /tmp/tree-sitter
+    sudo install -m 755 /tmp/tree-sitter /usr/local/bin/tree-sitter
+    rm /tmp/tree-sitter
+    log "tree-sitter installed: $(tree-sitter --version)"
+  fi
 else
   log "tree-sitter already installed: $(tree-sitter --version)"
 fi
@@ -238,8 +354,12 @@ fi
 # ── ripgrep (Telescope live_grep) ─────────────────────────────────────────────
 step "ripgrep"
 if ! ok rg; then
-  $PKG_INSTALL ripgrep
-  log "ripgrep installed: $(rg --version | head -1)"
+  if [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL ripgrep"
+  else
+    $PKG_INSTALL ripgrep
+    log "ripgrep installed: $(rg --version | head -1)"
+  fi
 else
   log "ripgrep already installed: $(rg --version | head -1)"
 fi
@@ -247,20 +367,23 @@ fi
 # ── bat (modern cat with syntax highlighting) ────────────────────────────────
 step "bat"
 if ! ok bat; then
-  if ok apt-get; then
-    $PKG_INSTALL bat
-    # Ubuntu/Debian installs it as 'batcat' — create a symlink
-    if ok batcat && ! ok bat; then
-      mkdir -p "$HOME/.local/bin"
-      ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
-      log "Created symlink: bat -> batcat"
+  if [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL bat (+ symlink batcat -> bat on Debian/Ubuntu)"
+  else
+    if ok apt-get; then
+      $PKG_INSTALL bat
+      if ok batcat && ! ok bat; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+        log "Created symlink: bat -> batcat"
+      fi
+    elif ok dnf; then
+      $PKG_INSTALL bat
+    elif ok pacman; then
+      $PKG_INSTALL bat
     fi
-  elif ok dnf; then
-    $PKG_INSTALL bat
-  elif ok pacman; then
-    $PKG_INSTALL bat
+    log "bat installed"
   fi
-  log "bat installed"
 else
   log "bat already installed: $(bat --version)"
 fi
@@ -268,8 +391,12 @@ fi
 # ── zoxide (smarter cd) ──────────────────────────────────────────────────────
 step "zoxide"
 if ! ok zoxide; then
-  curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
-  log "zoxide installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh"
+  else
+    curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+    log "zoxide installed"
+  fi
 else
   log "zoxide already installed: $(zoxide --version)"
 fi
@@ -277,9 +404,13 @@ fi
 # ── fzf (fuzzy finder) ───────────────────────────────────────────────────────
 step "fzf"
 if [ ! -d "$HOME/.fzf" ]; then
-  git clone --depth=1 https://github.com/junegunn/fzf.git "$HOME/.fzf"
-  "$HOME/.fzf/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
-  log "fzf installed"
+  if [ "$DRY_RUN" = true ]; then
+    would "git clone --depth=1 https://github.com/junegunn/fzf.git ~/.fzf && ~/.fzf/install"
+  else
+    git clone --depth=1 https://github.com/junegunn/fzf.git "$HOME/.fzf"
+    "$HOME/.fzf/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
+    log "fzf installed"
+  fi
 else
   log "fzf already present at ~/.fzf"
 fi
@@ -287,10 +418,14 @@ fi
 # ── zsh-autosuggestions ──────────────────────────────────────────────────────
 step "zsh-autosuggestions"
 ZSH_AUTOSUGGEST_DIR="$HOME/.zsh/zsh-autosuggestions"
-mkdir -p "$HOME/.zsh"
 if [ ! -d "$ZSH_AUTOSUGGEST_DIR" ]; then
-  git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git "$ZSH_AUTOSUGGEST_DIR"
-  log "zsh-autosuggestions cloned"
+  if [ "$DRY_RUN" = true ]; then
+    would "git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git $ZSH_AUTOSUGGEST_DIR"
+  else
+    mkdir -p "$HOME/.zsh"
+    git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git "$ZSH_AUTOSUGGEST_DIR"
+    log "zsh-autosuggestions cloned"
+  fi
 else
   log "zsh-autosuggestions already present"
 fi
@@ -299,8 +434,12 @@ fi
 step "zsh-history-substring-search"
 ZSH_HSS_DIR="$HOME/.zsh/zsh-history-substring-search"
 if [ ! -d "$ZSH_HSS_DIR" ]; then
-  git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search.git "$ZSH_HSS_DIR"
-  log "zsh-history-substring-search cloned"
+  if [ "$DRY_RUN" = true ]; then
+    would "git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search.git $ZSH_HSS_DIR"
+  else
+    git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search.git "$ZSH_HSS_DIR"
+    log "zsh-history-substring-search cloned"
+  fi
 else
   log "zsh-history-substring-search already present"
 fi
@@ -312,22 +451,21 @@ CATPPUCCIN_RAW="https://raw.githubusercontent.com/catppuccin"
 
 # ── Catppuccin: Starship (palette only, no format changes) ───────────────────
 step "Catppuccin: Starship"
-mkdir -p "$HOME/.config"
 STARSHIP_CONFIG="$HOME/.config/starship.toml"
-touch "$STARSHIP_CONFIG"
 
 if ! grep -q "\[palettes\.catppuccin_${CATPPUCCIN_FLAVOR}\]" "$STARSHIP_CONFIG" 2>/dev/null; then
-  # Set the palette at the top if not already set
-  if ! grep -q "^palette\s*=" "$STARSHIP_CONFIG"; then
-    # Prepend palette line using a temp file (sed -i '1i' can be unreliable)
-    tmp=$(mktemp)
-    echo "palette = \"catppuccin_${CATPPUCCIN_FLAVOR}\"" | cat - "$STARSHIP_CONFIG" > "$tmp"
-    mv "$tmp" "$STARSHIP_CONFIG"
-    log "Set palette = catppuccin_${CATPPUCCIN_FLAVOR} in starship.toml"
-  fi
-
-  # Append the mocha palette color table
-  cat >> "$STARSHIP_CONFIG" << 'EOF'
+  if [ "$DRY_RUN" = true ]; then
+    would "Add catppuccin_${CATPPUCCIN_FLAVOR} palette to $STARSHIP_CONFIG"
+  else
+    mkdir -p "$HOME/.config"
+    touch "$STARSHIP_CONFIG"
+    if ! grep -q "^palette\s*=" "$STARSHIP_CONFIG"; then
+      tmp=$(mktemp)
+      echo "palette = \"catppuccin_${CATPPUCCIN_FLAVOR}\"" | cat - "$STARSHIP_CONFIG" > "$tmp"
+      mv "$tmp" "$STARSHIP_CONFIG"
+      log "Set palette = catppuccin_${CATPPUCCIN_FLAVOR} in starship.toml"
+    fi
+    cat >> "$STARSHIP_CONFIG" << 'EOF'
 
 [palettes.catppuccin_mocha]
 rosewater = "#f5e0dc"
@@ -357,7 +495,8 @@ base      = "#1e1e2e"
 mantle    = "#181825"
 crust     = "#11111b"
 EOF
-  log "Catppuccin mocha palette appended to starship.toml"
+    log "Catppuccin mocha palette appended to starship.toml"
+  fi
 else
   log "Catppuccin starship palette already present"
 fi
@@ -367,35 +506,41 @@ fi
 step "Catppuccin: Zellij"
 ZELLIJ_CONFIG_DIR="$HOME/.config/zellij"
 ZELLIJ_CONFIG="$ZELLIJ_CONFIG_DIR/config.kdl"
-mkdir -p "$ZELLIJ_CONFIG_DIR"
-
-if [ ! -f "$ZELLIJ_CONFIG" ]; then
-  zellij setup --dump-config > "$ZELLIJ_CONFIG"
-  log "Zellij default config written"
-fi
 
 if ! grep -q "^theme " "$ZELLIJ_CONFIG" 2>/dev/null; then
-  if grep -q "// theme" "$ZELLIJ_CONFIG" 2>/dev/null; then
-    sed -i "s|// theme.*|theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"|" "$ZELLIJ_CONFIG"
+  if [ "$DRY_RUN" = true ]; then
+    would "Set theme \"catppuccin-${CATPPUCCIN_FLAVOR}\" in $ZELLIJ_CONFIG"
   else
-    echo "" >> "$ZELLIJ_CONFIG"
-    echo "theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"" >> "$ZELLIJ_CONFIG"
+    mkdir -p "$ZELLIJ_CONFIG_DIR"
+    if [ ! -f "$ZELLIJ_CONFIG" ]; then
+      zellij setup --dump-config > "$ZELLIJ_CONFIG"
+      log "Zellij default config written"
+    fi
+    if grep -q "// theme" "$ZELLIJ_CONFIG" 2>/dev/null; then
+      sed -i "s|// theme.*|theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"|" "$ZELLIJ_CONFIG"
+    else
+      echo "" >> "$ZELLIJ_CONFIG"
+      echo "theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"" >> "$ZELLIJ_CONFIG"
+    fi
+    log "Catppuccin ${CATPPUCCIN_FLAVOR} theme set in Zellij config"
   fi
-  log "Catppuccin ${CATPPUCCIN_FLAVOR} theme set in Zellij config"
 else
   log "Zellij theme already configured"
 fi
 
 # ── Catppuccin: Bottom ────────────────────────────────────────────────────────
 step "Catppuccin: Bottom"
-BOTTOM_CONFIG_DIR="$HOME/.config/bottom"
-BOTTOM_CONFIG="$BOTTOM_CONFIG_DIR/bottom.toml"
-mkdir -p "$BOTTOM_CONFIG_DIR"
+BOTTOM_CONFIG="$HOME/.config/bottom/bottom.toml"
 
 if ! grep -q "catppuccin" "$BOTTOM_CONFIG" 2>/dev/null; then
-  curl -fsSL "${CATPPUCCIN_RAW}/bottom/main/themes/${CATPPUCCIN_FLAVOR}.toml" \
-    >> "$BOTTOM_CONFIG"
-  log "Catppuccin ${CATPPUCCIN_FLAVOR} theme appended to ~/.config/bottom/bottom.toml"
+  if [ "$DRY_RUN" = true ]; then
+    would "Append Catppuccin ${CATPPUCCIN_FLAVOR} theme to $BOTTOM_CONFIG"
+  else
+    mkdir -p "$HOME/.config/bottom"
+    curl -fsSL "${CATPPUCCIN_RAW}/bottom/main/themes/${CATPPUCCIN_FLAVOR}.toml" \
+      >> "$BOTTOM_CONFIG"
+    log "Catppuccin ${CATPPUCCIN_FLAVOR} theme appended to $BOTTOM_CONFIG"
+  fi
 else
   log "Catppuccin bottom theme already present"
 fi
@@ -404,13 +549,17 @@ fi
 step "Catppuccin: bat"
 if ok bat; then
   BAT_THEMES_DIR="$(bat --config-dir)/themes"
-  mkdir -p "$BAT_THEMES_DIR"
   if [ ! -f "$BAT_THEMES_DIR/Catppuccin Mocha.tmTheme" ]; then
-    curl -fsSL \
-      "${CATPPUCCIN_RAW}/bat/main/themes/Catppuccin%20Mocha.tmTheme" \
-      -o "$BAT_THEMES_DIR/Catppuccin Mocha.tmTheme"
-    bat cache --build >/dev/null
-    log "Catppuccin Mocha bat theme installed"
+    if [ "$DRY_RUN" = true ]; then
+      would "Download Catppuccin Mocha.tmTheme -> $BAT_THEMES_DIR/ && bat cache --build"
+    else
+      mkdir -p "$BAT_THEMES_DIR"
+      curl -fsSL \
+        "${CATPPUCCIN_RAW}/bat/main/themes/Catppuccin%20Mocha.tmTheme" \
+        -o "$BAT_THEMES_DIR/Catppuccin Mocha.tmTheme"
+      bat cache --build >/dev/null
+      log "Catppuccin Mocha bat theme installed"
+    fi
   else
     log "Catppuccin bat theme already present"
   fi
@@ -425,21 +574,28 @@ ZSH_SYNTAX_HL_DIR="$ZSH_PLUGINS_DIR/zsh-syntax-highlighting"
 CATPPUCCIN_ZSH_DIR="$ZSH_PLUGINS_DIR/catppuccin-zsh-syntax-highlighting"
 CATPPUCCIN_ZSH_FILE="$CATPPUCCIN_ZSH_DIR/catppuccin_${CATPPUCCIN_FLAVOR}-zsh-syntax-highlighting.zsh"
 
-mkdir -p "$ZSH_PLUGINS_DIR"
-
 if [ ! -d "$ZSH_SYNTAX_HL_DIR" ]; then
-  git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git "$ZSH_SYNTAX_HL_DIR"
-  log "zsh-syntax-highlighting cloned"
+  if [ "$DRY_RUN" = true ]; then
+    would "git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git $ZSH_SYNTAX_HL_DIR"
+  else
+    mkdir -p "$ZSH_PLUGINS_DIR"
+    git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git "$ZSH_SYNTAX_HL_DIR"
+    log "zsh-syntax-highlighting cloned"
+  fi
 else
   log "zsh-syntax-highlighting already present"
 fi
 
-mkdir -p "$CATPPUCCIN_ZSH_DIR"
 if [ ! -f "$CATPPUCCIN_ZSH_FILE" ]; then
-  curl -fsSL \
-    "${CATPPUCCIN_RAW}/zsh-syntax-highlighting/main/themes/catppuccin_${CATPPUCCIN_FLAVOR}-zsh-syntax-highlighting.zsh" \
-    -o "$CATPPUCCIN_ZSH_FILE"
-  log "Catppuccin zsh-syntax-highlighting theme downloaded"
+  if [ "$DRY_RUN" = true ]; then
+    would "Download catppuccin_${CATPPUCCIN_FLAVOR}-zsh-syntax-highlighting.zsh -> $CATPPUCCIN_ZSH_DIR/"
+  else
+    mkdir -p "$CATPPUCCIN_ZSH_DIR"
+    curl -fsSL \
+      "${CATPPUCCIN_RAW}/zsh-syntax-highlighting/main/themes/catppuccin_${CATPPUCCIN_FLAVOR}-zsh-syntax-highlighting.zsh" \
+      -o "$CATPPUCCIN_ZSH_FILE"
+    log "Catppuccin zsh-syntax-highlighting theme downloaded"
+  fi
 else
   log "Catppuccin zsh-syntax-highlighting theme already present"
 fi
@@ -449,25 +605,6 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
-link_dotfile() {
-  # $1=source (in repo)  $2=target (in $HOME / .config)
-  local src="$1" dest="$2"
-  mkdir -p "$(dirname "$dest")"
-  if [ -L "$dest" ]; then
-    ln -sfn "$src" "$dest"
-    log "Symlink refreshed: $dest -> $src"
-  elif [ -e "$dest" ]; then
-    local backup="${dest}.backup.$(date +%Y%m%d-%H%M%S)"
-    mv "$dest" "$backup"
-    ln -s "$src" "$dest"
-    warn "Existing $dest backed up to $backup"
-    log "Linked $src -> $dest"
-  else
-    ln -s "$src" "$dest"
-    log "Linked $src -> $dest"
-  fi
-}
-
 step "Shell config (~/.zshrc)"
 link_dotfile "$REPO_DIR/zshrc" "$HOME/.zshrc"
 
@@ -475,9 +612,16 @@ step "Neovim config"
 link_dotfile "$REPO_DIR/init.lua" "$HOME/.config/nvim/init.lua"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-echo -e "\n${BLUE}════════════════════════════════${NC}"
-echo -e "${BLUE}  Bootstrap complete             ${NC}"
-echo -e "${BLUE}════════════════════════════════${NC}\n"
+if [ "$DRY_RUN" = true ]; then
+  echo -e "\n${MAGENTA}════════════════════════════════${NC}"
+  echo -e "${MAGENTA}  Dry run complete               ${NC}"
+  echo -e "${MAGENTA}  No changes were made.          ${NC}"
+  echo -e "${MAGENTA}════════════════════════════════${NC}\n"
+else
+  echo -e "\n${BLUE}════════════════════════════════${NC}"
+  echo -e "${BLUE}  Bootstrap complete             ${NC}"
+  echo -e "${BLUE}════════════════════════════════${NC}\n"
+fi
 
 TOOLS=(zsh uv ruff pyright starship claude nvim zellij btm fd rg bat zoxide fzf eza)
 for t in "${TOOLS[@]}"; do
@@ -488,9 +632,11 @@ for t in "${TOOLS[@]}"; do
   fi
 done
 
-echo ""
-warn "Next steps:"
-warn "  1. Start a new shell (or: exec zsh) to pick up PATH changes"
-warn "  2. Open nvim — lazy.nvim will auto-install plugins on first launch"
-warn "  3. Catppuccin mocha applied to: starship, zellij, bottom, zsh-syntax-highlighting"
-warn "     (neovim catppuccin is handled by init.lua)"
+if [ "$DRY_RUN" = false ]; then
+  echo ""
+  warn "Next steps:"
+  warn "  1. Start a new shell (or: exec zsh) to pick up PATH changes"
+  warn "  2. Open nvim — lazy.nvim will auto-install plugins on first launch"
+  warn "  3. Catppuccin mocha applied to: starship, zellij, bottom, zsh-syntax-highlighting"
+  warn "     (neovim catppuccin is handled by init.lua)"
+fi
