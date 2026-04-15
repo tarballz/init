@@ -94,44 +94,40 @@ foreach ($bucket in @('main', 'extras', 'nerd-fonts')) {
 }
 
 # ─── Scoop packages ────────────────────────────────────────────────────────────
+# Map scoop package name -> binary to check with Get-Command.
+# Empty string = no binary check (e.g. fonts); fall through to scoop's own idempotency.
 Step "Scoop packages"
 
-$packages = @(
+$packages = [ordered]@{
     # Shell / prompt
-    'starship'
-    'zoxide'
+    'starship'         = 'starship'
+    'zoxide'           = 'zoxide'
     # Modern replacements (also covered by aliases in profile.ps1)
-    'eza'
-    'bat'
-    'fd'
-    'ripgrep'
-    'fzf'
+    'eza'              = 'eza'
+    'bat'              = 'bat'
+    'fd'               = 'fd'
+    'ripgrep'          = 'rg'
+    'fzf'              = 'fzf'
     # Unix coreutils gap-filler (ln, touch, wc, head, tail, xargs, etc.)
-    'uutils-coreutils'
+    'uutils-coreutils' = 'touch'
     # Editors / multiplexers
-    'neovim'
-    'zellij'
+    'neovim'           = 'nvim'
+    'zellij'           = 'zellij'
     # System monitoring
-    'bottom'
-    # Nerd Font (nerd-fonts bucket)
-    'JetBrainsMono-NF'
-)
+    'bottom'           = 'btm'
+    # Nerd Font — no binary, scoop handles idempotency
+    'JetBrainsMono-NF' = ''
+}
 
-if ($DryRun) {
-    # Use scoop list to distinguish already-installed packages if scoop is available
-    $installedPkgs = if (Get-Command scoop -ErrorAction SilentlyContinue) {
-        (scoop list 2>$null).Name
-    } else { @() }
-    foreach ($pkg in $packages) {
-        if ($installedPkgs -contains $pkg) { Skip $pkg }
-        else { Would "scoop install $pkg" }
-    }
-} else {
-    foreach ($pkg in $packages) {
+foreach ($pkg in $packages.Keys) {
+    $bin = $packages[$pkg]
+    if ($bin -and (Get-Command $bin -ErrorAction SilentlyContinue)) {
+        Skip "$pkg ($bin already on PATH)"
+    } elseif ($DryRun) {
+        Would "scoop install $pkg"
+    } else {
         $out = scoop install $pkg 2>&1 | Out-String
-        if ($out -match "'$pkg' \($([regex]::Escape($pkg))\) is already installed") {
-            Skip $pkg
-        } elseif ($out -match 'ERROR') {
+        if ($out -match 'ERROR') {
             Warn "Failed to install $pkg — check output above"
         } else {
             Done "Installed: $pkg"
