@@ -172,17 +172,21 @@ if (Get-Module -ListAvailable -Name PSFzf) {
 # ─── Catppuccin for Windows Terminal ───────────────────────────────────────────
 # Uses the Fragment API (Windows Terminal 1.11+): drop JSON into the Fragments
 # directory and Windows Terminal auto-discovers it — no settings.json editing.
+# The repo ships bare JSON objects (not pre-wrapped), so we download mocha.json
+# (color scheme) and mochaTheme.json (tab/window chrome) and compose them here.
 Step "Catppuccin theme (Windows Terminal)"
 $fragmentDir  = "$env:LOCALAPPDATA\Microsoft\Windows Terminal\Fragments\Catppuccin"
-$fragmentFile = "$fragmentDir\catppuccin.json"
+$fragmentFile = "$fragmentDir\catppuccin-mocha.json"
 if (Test-Path $fragmentFile) {
     Skip "Already installed"
 } elseif ($DryRun) {
-    Would "Download catppuccin.json -> $fragmentFile"
+    Would "Fetch mocha.json + mochaTheme.json, compose fragment -> $fragmentFile"
 } else {
     New-Item -ItemType Directory -Path $fragmentDir -Force | Out-Null
-    $url = 'https://raw.githubusercontent.com/catppuccin/windows-terminal/main/catppuccin.json'
-    Invoke-WebRequest -Uri $url -OutFile $fragmentFile -UseBasicParsing
+    $base = 'https://raw.githubusercontent.com/catppuccin/windows-terminal/main'
+    $scheme = (Invoke-WebRequest -Uri "$base/mocha.json"      -UseBasicParsing).Content | ConvertFrom-Json
+    $theme  = (Invoke-WebRequest -Uri "$base/mochaTheme.json" -UseBasicParsing).Content | ConvertFrom-Json
+    @{ schemes = @($scheme); themes = @($theme) } | ConvertTo-Json -Depth 10 | Set-Content $fragmentFile
     Done "Installed — restart Windows Terminal, then set Catppuccin Mocha as your color scheme"
 }
 
