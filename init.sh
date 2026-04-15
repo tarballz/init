@@ -611,6 +611,19 @@ link_dotfile "$REPO_DIR/zshrc" "$HOME/.zshrc"
 step "Neovim config"
 link_dotfile "$REPO_DIR/init.lua" "$HOME/.config/nvim/init.lua"
 
+# ── Neovim plugins + treesitter parsers ──────────────────────────────────────
+# Headless nvim run: lazy.nvim installs plugins, nvim-treesitter `build` hook
+# compiles parsers (needs tree-sitter CLI + a C compiler — installed above).
+step "Neovim plugins + treesitter parsers"
+if ! ok nvim; then
+  warn "nvim not on PATH — skipping plugin sync"
+elif [ "$DRY_RUN" = true ]; then
+  would "nvim --headless '+Lazy! sync' '+qa'"
+else
+  nvim --headless '+Lazy! sync' '+qa' || warn "nvim plugin sync had errors"
+  log "Plugins synced and parsers compiled"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 if [ "$DRY_RUN" = true ]; then
   echo -e "\n${MAGENTA}════════════════════════════════${NC}"

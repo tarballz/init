@@ -220,6 +220,19 @@ Step "Dotfile symlinks"
 New-Symlink -Path $PROFILE -Target "$RepoRoot\profile.ps1" -MigrateTo (Join-Path $HOME 'profile.local.ps1')
 New-Symlink -Path "$env:LOCALAPPDATA\nvim\init.lua" -Target "$RepoRoot\init.lua"
 
+# ─── Neovim plugins + treesitter parsers ──────────────────────────────────────
+# Headless nvim run: lazy.nvim installs plugins, nvim-treesitter `build` hook
+# compiles parsers (needs tree-sitter CLI + zig — installed above).
+Step "Neovim plugins + treesitter parsers"
+if (-not (Get-Command nvim -ErrorAction SilentlyContinue)) {
+    Skip "nvim not on PATH"
+} elseif ($DryRun) {
+    Would "nvim --headless '+Lazy! sync' '+qa'"
+} else {
+    & nvim --headless '+Lazy! sync' '+qa' 2>&1 | Out-Host
+    Done "Plugins synced and parsers compiled"
+}
+
 # ─── Done ──────────────────────────────────────────────────────────────────────
 if ($DryRun) {
     Write-Host "`n[DRY RUN] Complete. No changes were made.`n" -ForegroundColor Magenta
