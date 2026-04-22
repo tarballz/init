@@ -39,6 +39,13 @@ bindkey '^[[1;3D' backward-word               # Alt+Left
 bindkey '^H'      backward-kill-word          # Ctrl+Backspace (some terms)
 bindkey '^[[3;5~' kill-word                   # Ctrl+Delete
 
+# Ctrl+←/→ word navigation (covers common terminal escape sequences)
+bindkey '\e[1;5C' forward-word
+bindkey '\e[1;5D' backward-word
+bindkey '\e[5C'   forward-word
+bindkey '\e[5D'   backward-word
+autoload -Uz select-word-style && select-word-style bash
+
 # ─── Tool integrations ─────────────────────────────────────────────────────────
 command -v starship >/dev/null && eval "$(starship init zsh)"
 command -v zoxide   >/dev/null && eval "$(zoxide init zsh)"
@@ -64,20 +71,23 @@ command -v zoxide   >/dev/null && eval "$(zoxide init zsh)"
   && bindkey '^[[B' history-substring-search-down
 
 # ─── Aliases ───────────────────────────────────────────────────────────────────
-alias vim="nvim"
-alias zj="zellij"
+command -v nvim    >/dev/null && alias vim="nvim"
+command -v zellij  >/dev/null && alias zj="zellij"
+command -v claude  >/dev/null && alias claude="claude --allow-dangerously-skip-permissions"
 
 # eza (modern ls)
-alias ls="eza --icons=always --group-directories-first"
-alias ll="eza -l --icons=always --git --group-directories-first"
-alias la="eza -la --icons=always --git --group-directories-first"
-alias lt="eza --tree --level=2 --icons=always"
+if command -v eza >/dev/null; then
+  alias ls="eza --icons=always --group-directories-first"
+  alias ll="eza -l --icons=always --git --group-directories-first"
+  alias la="eza -la --icons=always --git --group-directories-first"
+  alias lt="eza --tree --level=2 --icons=always"
+fi
 
 # bat (modern cat)
-alias cat="bat --paging=never"
+command -v bat >/dev/null && alias cat="bat --paging=never"
 
-# claude
-alias claude="claude --allow-dangerously-skip-permissions"
+# fd (modern find)
+command -v fd  >/dev/null && alias find="fd"
 
 # marimapper (editable — runs from source)
 alias marimapper='uv run --project ~/code/marimapper marimapper'
