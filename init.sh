@@ -532,7 +532,7 @@ fi
 step "Catppuccin: Bottom"
 BOTTOM_CONFIG="$HOME/.config/bottom/bottom.toml"
 
-if ! grep -q "catppuccin" "$BOTTOM_CONFIG" 2>/dev/null; then
+if ! grep -q "^\[styles\.cpu\]" "$BOTTOM_CONFIG" 2>/dev/null; then
   if [ "$DRY_RUN" = true ]; then
     would "Append Catppuccin ${CATPPUCCIN_FLAVOR} theme to $BOTTOM_CONFIG"
   else
