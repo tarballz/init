@@ -34,16 +34,34 @@ if [ "$DRY_RUN" = true ]; then
   echo -e "\n${MAGENTA}[DRY RUN] No changes will be made.${NC}\n"
 fi
 
+# ── Operating system ──────────────────────────────────────────────────────────
+case "$(uname -s)" in
+  Linux)  IS_MAC=false ;;
+  Darwin) IS_MAC=true  ;;
+  *) err "Unsupported OS: $(uname -s) (supported: Linux, macOS)"; exit 1 ;;
+esac
+
+# Portable in-place sed (BSD sed on macOS needs an explicit empty backup suffix).
+sed_i() { if [ "$IS_MAC" = true ]; then sed -i '' "$@"; else sed -i "$@"; fi; }
+
 # ── Architecture ──────────────────────────────────────────────────────────────
+# ARCH_MUSL / NVIM_ARCH only feed the Linux release-tarball URLs; on macOS every
+# tool comes from Homebrew, so these values go unused there.
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64)  ARCH_MUSL="x86_64-unknown-linux-musl" ; NVIM_ARCH="x86_64" ;;
-  aarch64) ARCH_MUSL="aarch64-unknown-linux-musl" ; NVIM_ARCH="arm64"  ;;
+  x86_64)        ARCH_MUSL="x86_64-unknown-linux-musl"  ; NVIM_ARCH="x86_64" ;;
+  aarch64|arm64) ARCH_MUSL="aarch64-unknown-linux-musl" ; NVIM_ARCH="arm64"  ;;
   *) err "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
 # ── Package manager ───────────────────────────────────────────────────────────
-if ok apt-get; then
+if [ "$IS_MAC" = true ]; then
+  if ! ok brew; then
+    err "Homebrew not found. Install it from https://brew.sh, then re-run."; exit 1
+  fi
+  PKG_UPDATE="brew update"
+  PKG_INSTALL="brew install"
+elif ok apt-get; then
   PKG_UPDATE="sudo apt-get update -qq"
   PKG_INSTALL="sudo apt-get install -y"
 elif ok dnf; then
@@ -114,7 +132,25 @@ fi
 
 # ── Base build tools & git ────────────────────────────────────────────────────
 step "Base build dependencies"
-if [ "$DRY_RUN" = true ]; then
+if [ "$IS_MAC" = true ]; then
+  # git, curl, make and clang (the C compiler for treesitter) ship with the
+  # Xcode Command Line Tools, which are also a prerequisite for Homebrew itself.
+  if ! xcode-select -p >/dev/null 2>&1; then
+    if [ "$DRY_RUN" = true ]; then
+      would "xcode-select --install"
+    else
+      warn "Xcode Command Line Tools not found — launching the installer"
+      xcode-select --install || true
+      err "Finish the Command Line Tools install dialog, then re-run this script"; exit 1
+    fi
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL git curl wget unzip"
+  else
+    $PKG_INSTALL git curl wget unzip
+    log "Base dependencies ready"
+  fi
+elif [ "$DRY_RUN" = true ]; then
   if ok apt-get || ok dnf; then
     would "$PKG_INSTALL git curl wget unzip gcc make"
   elif ok pacman; then
@@ -227,7 +263,14 @@ fi
 # ── Neovim ────────────────────────────────────────────────────────────────────
 step "Neovim"
 if ! ok nvim; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL neovim"
+    else
+      $PKG_INSTALL neovim
+      log "Neovim installed: $(nvim --version | head -1)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "Download and install nvim-linux-${NVIM_ARCH}.tar.gz -> /usr/local/"
   else
     tmp=$(mktemp -d)
@@ -244,7 +287,14 @@ fi
 # ── Zellij ────────────────────────────────────────────────────────────────────
 step "Zellij"
 if ! ok zellij; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL zellij"
+    else
+      $PKG_INSTALL zellij
+      log "Zellij installed: $(zellij --version)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "install_binary_from_tar zellij-org/zellij -> zellij-${ARCH_MUSL}.tar.gz"
   else
     TAG=$(latest_gh_tag "zellij-org/zellij")
@@ -260,7 +310,14 @@ fi
 # ── Bottom (btm) ──────────────────────────────────────────────────────────────
 step "Bottom (btm)"
 if ! ok btm; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL bottom"
+    else
+      $PKG_INSTALL bottom
+      log "Bottom installed: $(btm --version)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "install_binary_from_tar ClementTsang/bottom -> bottom_${ARCH_MUSL}.tar.gz"
   else
     TAG=$(latest_gh_tag "ClementTsang/bottom")
@@ -276,7 +333,14 @@ fi
 # ── fd (Telescope file finder) ────────────────────────────────────────────────
 step "fd"
 if ! ok fd; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL fd"
+    else
+      $PKG_INSTALL fd
+      log "fd installed"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "$PKG_INSTALL fd-find (+ symlink fdfind -> fd on Debian/Ubuntu)"
   else
     if ok apt-get; then
@@ -300,7 +364,14 @@ fi
 # ── eza (modern ls replacement) ──────────────────────────────────────────────
 step "eza"
 if ! ok eza; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL eza"
+    else
+      $PKG_INSTALL eza
+      log "eza installed: $(eza --version | head -1)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "install_binary_from_tar eza-community/eza -> eza_${ARCH_MUSL}.tar.gz"
   else
     TAG=$(latest_gh_tag "eza-community/eza")
@@ -315,29 +386,52 @@ fi
 
 # ── FiraCode Nerd Font Mono ───────────────────────────────────────────────────
 step "FiraCode Nerd Font Mono"
-FONT_DIR="$HOME/.local/share/fonts"
-if ! fc-list | grep -qi "FiraCode Nerd"; then
-  if [ "$DRY_RUN" = true ]; then
-    would "Download FiraCode.zip from nerd-fonts and install *Mono*.ttf -> $FONT_DIR/"
+if [ "$IS_MAC" = true ]; then
+  # macOS has no fontconfig (fc-list/fc-cache); install via the Homebrew cask,
+  # which drops the .ttf files into ~/Library/Fonts.
+  if brew list --cask font-fira-code-nerd-font >/dev/null 2>&1; then
+    log "FiraCode Nerd Font Mono already installed"
+  elif [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL --cask font-fira-code-nerd-font"
   else
-    mkdir -p "$FONT_DIR"
-    tmp=$(mktemp -d)
-    curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
-      -o "$tmp/FiraCode.zip"
-    unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
-    cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
-    fc-cache -f "$FONT_DIR"
-    rm -rf "$tmp"
+    $PKG_INSTALL --cask font-fira-code-nerd-font
     log "FiraCode Nerd Font Mono installed"
   fi
 else
-  log "FiraCode Nerd Font Mono already installed"
+  FONT_DIR="$HOME/.local/share/fonts"
+  if ! fc-list | grep -qi "FiraCode Nerd"; then
+    if [ "$DRY_RUN" = true ]; then
+      would "Download FiraCode.zip from nerd-fonts and install *Mono*.ttf -> $FONT_DIR/"
+    else
+      mkdir -p "$FONT_DIR"
+      tmp=$(mktemp -d)
+      curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
+        -o "$tmp/FiraCode.zip"
+      unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
+      cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
+      fc-cache -f "$FONT_DIR"
+      rm -rf "$tmp"
+      log "FiraCode Nerd Font Mono installed"
+    fi
+  else
+    log "FiraCode Nerd Font Mono already installed"
+  fi
 fi
 
 # ── tree-sitter CLI (nvim-treesitter parser compilation) ─────────────────────
 step "tree-sitter"
 if ! ok tree-sitter; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    # The Homebrew `tree-sitter` formula is the library only (and is pulled in
+    # as a neovim dependency); the CLI that nvim-treesitter's build hook needs
+    # lives in the separate `tree-sitter-cli` formula, which provides `tree-sitter`.
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL tree-sitter-cli"
+    else
+      $PKG_INSTALL tree-sitter-cli
+      log "tree-sitter installed: $(tree-sitter --version)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "Download tree-sitter-linux-x64.gz -> /usr/local/bin/tree-sitter"
   else
     TAG=$(latest_gh_tag "tree-sitter/tree-sitter")
@@ -367,7 +461,14 @@ fi
 # ── bat (modern cat with syntax highlighting) ────────────────────────────────
 step "bat"
 if ! ok bat; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL bat"
+    else
+      $PKG_INSTALL bat
+      log "bat installed"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "$PKG_INSTALL bat (+ symlink batcat -> bat on Debian/Ubuntu)"
   else
     if ok apt-get; then
@@ -402,8 +503,18 @@ else
 fi
 
 # ── fzf (fuzzy finder) ───────────────────────────────────────────────────────
+# zshrc sources ~/.fzf.zsh for key-bindings + completion, a file the git
+# installer writes. On macOS fzf comes from Homebrew, so generate that file
+# from `fzf --zsh` instead of cloning a redundant second copy under ~/.fzf.
 step "fzf"
-if [ ! -d "$HOME/.fzf" ]; then
+if [ "$IS_MAC" = true ] && ok fzf; then
+  if [ "$DRY_RUN" = true ]; then
+    would "fzf --zsh > ~/.fzf.zsh (key-bindings + completion for Homebrew fzf)"
+  else
+    fzf --zsh > "$HOME/.fzf.zsh"
+    log "fzf already installed (Homebrew); wrote ~/.fzf.zsh"
+  fi
+elif [ ! -d "$HOME/.fzf" ]; then
   if [ "$DRY_RUN" = true ]; then
     would "git clone --depth=1 https://github.com/junegunn/fzf.git ~/.fzf && ~/.fzf/install"
   else
@@ -517,7 +628,7 @@ if ! grep -q "^theme " "$ZELLIJ_CONFIG" 2>/dev/null; then
       log "Zellij default config written"
     fi
     if grep -q "// theme" "$ZELLIJ_CONFIG" 2>/dev/null; then
-      sed -i "s|// theme.*|theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"|" "$ZELLIJ_CONFIG"
+      sed_i "s|// theme.*|theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"|" "$ZELLIJ_CONFIG"
     else
       echo "" >> "$ZELLIJ_CONFIG"
       echo "theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"" >> "$ZELLIJ_CONFIG"
@@ -603,7 +714,14 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 # Dotfile symlinks (~/.zshrc, ~/.config/nvim/init.lua)
 # ══════════════════════════════════════════════════════════════════════════════
-REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+# Resolve the repo directory portably — BSD readlink (macOS) has no `-f`.
+SCRIPT_SRC="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_SRC" ]; do
+  SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
+  SCRIPT_SRC="$(readlink "$SCRIPT_SRC")"
+  [ "${SCRIPT_SRC#/}" = "$SCRIPT_SRC" ] && SCRIPT_SRC="$SCRIPT_DIR/$SCRIPT_SRC"
+done
+REPO_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
 
 step "Shell config (~/.zshrc)"
 link_dotfile "$REPO_DIR/zshrc" "$HOME/.zshrc"

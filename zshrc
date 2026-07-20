@@ -99,7 +99,7 @@ alias marimapper_export_2d_map='uv run --project ~/code/marimapper marimapper_ex
 # misc color
 alias grep="grep --color=auto"
 alias diff="diff --color=auto"
-alias ip="ip --color=auto"
+command -v ip >/dev/null && alias ip="ip --color=auto"  # Linux only; macOS has no ip(8)
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm

@@ -1,17 +1,17 @@
 # init
 
-Bootstrap for a fully configured dev environment. Supports Linux (via `init.sh`) and Windows (via `setup.ps1`).
+Bootstrap for a fully configured dev environment. Supports Linux and macOS (via `init.sh`) and Windows (via `setup.ps1`).
 
 ---
 
-## Linux
+## Linux / macOS
 
 ```bash
 git clone git@github.com:tarballz/init.git ~/code/init
 bash ~/code/init/init.sh
 ```
 
-Requires `sudo` for package installation. After it finishes, log out and back in (or run `exec zsh`) to activate zsh as your shell.
+On **Linux** this requires `sudo` for package installation. On **macOS** it uses [Homebrew](https://brew.sh) (no `sudo`); install Homebrew first if you don't have it. After it finishes, log out and back in (or run `exec zsh`) to activate zsh as your shell — on macOS zsh is already the default, so this is usually a no-op.
 
 Pass `--dry-run` to preview all changes without making them:
 
@@ -44,7 +44,9 @@ bash ~/code/init/init.sh --dry-run
 | tree-sitter CLI | latest release binary |
 | gcc, make, git, curl, unzip | system package manager |
 
-Supports apt (Debian/Ubuntu), dnf (Fedora), and pacman (Arch). Supports x86\_64 and arm64.
+Supports apt (Debian/Ubuntu), dnf (Fedora), pacman (Arch), and Homebrew (macOS). Supports x86\_64 and arm64.
+
+On **macOS** every tool is installed through Homebrew (the Linux release-tarball binaries are Linux-only). The FiraCode Nerd Font is installed via the `font-fira-code-nerd-font` cask, and base build tools (git, curl, clang, make) come from the Xcode Command Line Tools, which the script installs if missing.
 
 ### What it configures
 
