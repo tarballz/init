@@ -729,6 +729,45 @@ link_dotfile "$REPO_DIR/zshrc" "$HOME/.zshrc"
 step "Neovim config"
 link_dotfile "$REPO_DIR/init.lua" "$HOME/.config/nvim/init.lua"
 
+# ── Git config ────────────────────────────────────────────────────────────────
+# The repo owns behavioral config; per-machine identity lives in ~/.gitconfig.local
+# (git-ignored), which the committed gitconfig sources via [include]. Seed it from
+# the existing global identity before the symlink swap replaces ~/.gitconfig.
+step "Git config"
+GITCONFIG_LOCAL="$HOME/.gitconfig.local"
+if [ ! -f "$GITCONFIG_LOCAL" ]; then
+  EXISTING_NAME="$(git config --global user.name 2>/dev/null || true)"
+  EXISTING_EMAIL="$(git config --global user.email 2>/dev/null || true)"
+  if [ "$DRY_RUN" = true ]; then
+    would "Seed $GITCONFIG_LOCAL with [user] name=\"${EXISTING_NAME:-?}\" email=\"${EXISTING_EMAIL:-?}\""
+  else
+    {
+      echo "# Per-machine git identity + overrides. Not tracked by the init repo."
+      echo "[user]"
+      [ -n "$EXISTING_NAME" ]  && echo "	name = $EXISTING_NAME"
+      [ -n "$EXISTING_EMAIL" ] && echo "	email = $EXISTING_EMAIL"
+    } > "$GITCONFIG_LOCAL"
+    if [ -z "$EXISTING_NAME" ] || [ -z "$EXISTING_EMAIL" ]; then
+      warn "Fill in name/email in $GITCONFIG_LOCAL"
+    else
+      log "Seeded $GITCONFIG_LOCAL from existing git identity"
+    fi
+  fi
+else
+  log "$GITCONFIG_LOCAL already exists — leaving identity untouched"
+fi
+link_dotfile "$REPO_DIR/gitconfig" "$HOME/.gitconfig"
+link_dotfile "$REPO_DIR/gitignore" "$HOME/.config/git/ignore"
+
+# ── SSH config ────────────────────────────────────────────────────────────────
+step "SSH config"
+link_dotfile "$REPO_DIR/ssh_config" "$HOME/.ssh/config"
+if [ "$DRY_RUN" = true ]; then
+  would "chmod 600 ~/.ssh/config"
+else
+  chmod 600 "$HOME/.ssh/config" 2>/dev/null || true
+fi
+
 # ── Neovim plugins + treesitter parsers ──────────────────────────────────────
 # Headless nvim run: lazy.nvim installs plugins, nvim-treesitter `build` hook
 # compiles parsers (needs tree-sitter CLI + a C compiler — installed above).
@@ -740,6 +779,12 @@ elif [ "$DRY_RUN" = true ]; then
 else
   nvim --headless '+Lazy! sync' '+qa' || warn "nvim plugin sync had errors"
   log "Plugins synced and parsers compiled"
+fi
+
+# ── macOS: system defaults + account glue (SSH keychain, gh, OrbStack) ────────
+if [ "$IS_MAC" = true ]; then
+  # shellcheck source=macos.sh
+  source "$REPO_DIR/macos.sh"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -770,4 +815,9 @@ if [ "$DRY_RUN" = false ]; then
   warn "  2. Open nvim — lazy.nvim will auto-install plugins on first launch"
   warn "  3. Catppuccin mocha applied to: starship, zellij, bottom, zsh-syntax-highlighting"
   warn "     (neovim catppuccin is handled by init.lua)"
+  if [ "$IS_MAC" = true ]; then
+    warn "  4. Verify ~/.gitconfig.local has your name + email"
+    warn "  5. gh auth login   (then re-run to register the SSH signing key)"
+    warn "  6. Launch OrbStack once, then: docker run --rm hello-world"
+  fi
 fi
