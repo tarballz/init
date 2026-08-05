@@ -35,10 +35,12 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 # ── Architecture ──────────────────────────────────────────────────────────────
+# eza publishes no aarch64 musl build (only x86_64), so it gets its own variable
+# pinned to the aarch64 gnu asset instead of reusing ARCH_MUSL.
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64)  ARCH_MUSL="x86_64-unknown-linux-musl" ; NVIM_ARCH="x86_64" ;;
-  aarch64) ARCH_MUSL="aarch64-unknown-linux-musl" ; NVIM_ARCH="arm64"  ;;
+  x86_64)  ARCH_MUSL="x86_64-unknown-linux-musl" ; NVIM_ARCH="x86_64" ; TS_ARCH="x64"   ; EZA_ARCH="x86_64-unknown-linux-musl"  ;;
+  aarch64) ARCH_MUSL="aarch64-unknown-linux-musl" ; NVIM_ARCH="arm64" ; TS_ARCH="arm64" ; EZA_ARCH="aarch64-unknown-linux-gnu" ;;
   *) err "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
@@ -301,11 +303,11 @@ fi
 step "eza"
 if ! ok eza; then
   if [ "$DRY_RUN" = true ]; then
-    would "install_binary_from_tar eza-community/eza -> eza_${ARCH_MUSL}.tar.gz"
+    would "install_binary_from_tar eza-community/eza -> eza_${EZA_ARCH}.tar.gz"
   else
     TAG=$(latest_gh_tag "eza-community/eza")
     install_binary_from_tar \
-      "https://github.com/eza-community/eza/releases/download/${TAG}/eza_${ARCH_MUSL}.tar.gz" \
+      "https://github.com/eza-community/eza/releases/download/${TAG}/eza_${EZA_ARCH}.tar.gz" \
       "eza"
     log "eza installed: $(eza --version | head -1)"
   fi
@@ -315,33 +317,43 @@ fi
 
 # ── FiraCode Nerd Font Mono ───────────────────────────────────────────────────
 step "FiraCode Nerd Font Mono"
-FONT_DIR="$HOME/.local/share/fonts"
-if ! fc-list | grep -qi "FiraCode Nerd"; then
+# fc-list/fc-cache come from the fontconfig package, which isn't installed by
+# default on minimal distros (e.g. Raspberry Pi OS/Debian) — install it first
+# so the fc-cache call below doesn't abort the script under set -e.
+if ! ok fc-list; then
   if [ "$DRY_RUN" = true ]; then
-    would "Download FiraCode.zip from nerd-fonts and install *Mono*.ttf -> $FONT_DIR/"
+    would "$PKG_INSTALL fontconfig"
   else
-    mkdir -p "$FONT_DIR"
-    tmp=$(mktemp -d)
-    curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
-      -o "$tmp/FiraCode.zip"
-    unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
-    cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
-    fc-cache -f "$FONT_DIR"
-    rm -rf "$tmp"
-    log "FiraCode Nerd Font Mono installed"
+    $PKG_INSTALL fontconfig
+    log "fontconfig installed"
   fi
-else
+fi
+
+FONT_DIR="$HOME/.local/share/fonts"
+if ok fc-list && fc-list | grep -qi "FiraCode Nerd"; then
   log "FiraCode Nerd Font Mono already installed"
+elif [ "$DRY_RUN" = true ]; then
+  would "Download FiraCode.zip from nerd-fonts and install *Mono*.ttf -> $FONT_DIR/"
+else
+  mkdir -p "$FONT_DIR"
+  tmp=$(mktemp -d)
+  curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
+    -o "$tmp/FiraCode.zip"
+  unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
+  cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
+  fc-cache -f "$FONT_DIR"
+  rm -rf "$tmp"
+  log "FiraCode Nerd Font Mono installed"
 fi
 
 # ── tree-sitter CLI (nvim-treesitter parser compilation) ─────────────────────
 step "tree-sitter"
 if ! ok tree-sitter; then
   if [ "$DRY_RUN" = true ]; then
-    would "Download tree-sitter-linux-x64.gz -> /usr/local/bin/tree-sitter"
+    would "Download tree-sitter-linux-${TS_ARCH}.gz -> /usr/local/bin/tree-sitter"
   else
     TAG=$(latest_gh_tag "tree-sitter/tree-sitter")
-    curl -fsSL "https://github.com/tree-sitter/tree-sitter/releases/download/${TAG}/tree-sitter-linux-x64.gz" \
+    curl -fsSL "https://github.com/tree-sitter/tree-sitter/releases/download/${TAG}/tree-sitter-linux-${TS_ARCH}.gz" \
       | gunzip -c > /tmp/tree-sitter
     sudo install -m 755 /tmp/tree-sitter /usr/local/bin/tree-sitter
     rm /tmp/tree-sitter

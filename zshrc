@@ -26,8 +26,6 @@ zstyle ':completion:*' group-name ''
 zstyle ':completion:*:descriptions' format '%F{yellow}-- %d --%f'
 
 # ─── Key bindings ──────────────────────────────────────────────────────────────
-bindkey -v                                    # vi keymap (Esc → normal mode)
-export KEYTIMEOUT=1                           # 10ms Esc delay — snappy mode switch
 
 # Word-wise navigation with Ctrl+Arrow (xterm/modern terminals)
 bindkey '^[[1;5C' forward-word                # Ctrl+Right
