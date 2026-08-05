@@ -34,6 +34,30 @@ if [ "$DRY_RUN" = true ]; then
   echo -e "\n${MAGENTA}[DRY RUN] No changes will be made.${NC}\n"
 fi
 
+# ── Terminal type (terminfo) ────────────────────────────────────────────────
+# A fresh box's terminfo database rarely covers newer/niche terminal emulators
+# (Ghostty, Kitty, ...) — SSH forwards $TERM from the client, but the matching
+# terminfo entry only exists if this machine's ncurses database happens to
+# ship it. Without it, zsh's line editor loses track of cursor position:
+# characters land in the wrong place, backspace looks broken, etc. The fix has
+# to run FROM the client (it already has the correct entry installed), so this
+# only detects the problem and prints the one-liner to fix it.
+step "Terminal type (terminfo)"
+if [ -z "${TERM:-}" ]; then
+  warn "\$TERM is unset — skipping terminfo check"
+elif infocmp "$TERM" >/dev/null 2>&1; then
+  log "terminfo entry for TERM=$TERM found"
+else
+  if command -v hostname >/dev/null 2>&1 && hostname -I >/dev/null 2>&1; then
+    TARGET_ADDR="$(hostname -I | awk '{print $1}')"
+  else
+    TARGET_ADDR="$(hostname 2>/dev/null || echo "<this-host>")"
+  fi
+  warn "No terminfo entry for TERM=$TERM on this machine — zsh's line editor may lose track of the cursor (garbled typing, broken backspace)."
+  warn "Fix from your LOCAL machine (the one already displaying this terminal correctly):"
+  warn "  infocmp -x $TERM | ssh $(whoami)@$TARGET_ADDR -- tic -x -"
+fi
+
 # ── Architecture ──────────────────────────────────────────────────────────────
 # eza publishes no aarch64 musl build (only x86_64), so it gets its own variable
 # pinned to the aarch64 gnu asset instead of reusing ARCH_MUSL.
