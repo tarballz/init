@@ -58,18 +58,36 @@ else
   warn "  infocmp -x $TERM | ssh $(whoami)@$TARGET_ADDR -- tic -x -"
 fi
 
+# ── Operating system ──────────────────────────────────────────────────────────
+case "$(uname -s)" in
+  Linux)  IS_MAC=false ;;
+  Darwin) IS_MAC=true  ;;
+  *) err "Unsupported OS: $(uname -s) (supported: Linux, macOS)"; exit 1 ;;
+esac
+
+# Portable in-place sed (BSD sed on macOS needs an explicit empty backup suffix).
+sed_i() { if [ "$IS_MAC" = true ]; then sed -i '' "$@"; else sed -i "$@"; fi; }
+
 # ── Architecture ──────────────────────────────────────────────────────────────
+# ARCH_MUSL / NVIM_ARCH / TS_ARCH / EZA_ARCH only feed the Linux release-tarball
+# URLs; on macOS every tool comes from Homebrew, so these values go unused there.
 # eza publishes no aarch64 musl build (only x86_64), so it gets its own variable
 # pinned to the aarch64 gnu asset instead of reusing ARCH_MUSL.
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64)  ARCH_MUSL="x86_64-unknown-linux-musl" ; NVIM_ARCH="x86_64" ; TS_ARCH="x64"   ; EZA_ARCH="x86_64-unknown-linux-musl"  ;;
-  aarch64) ARCH_MUSL="aarch64-unknown-linux-musl" ; NVIM_ARCH="arm64" ; TS_ARCH="arm64" ; EZA_ARCH="aarch64-unknown-linux-gnu" ;;
+  x86_64)        ARCH_MUSL="x86_64-unknown-linux-musl"  ; NVIM_ARCH="x86_64" ; TS_ARCH="x64"   ; EZA_ARCH="x86_64-unknown-linux-musl"  ;;
+  aarch64|arm64) ARCH_MUSL="aarch64-unknown-linux-musl" ; NVIM_ARCH="arm64"  ; TS_ARCH="arm64" ; EZA_ARCH="aarch64-unknown-linux-gnu" ;;
   *) err "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
 # ── Package manager ───────────────────────────────────────────────────────────
-if ok apt-get; then
+if [ "$IS_MAC" = true ]; then
+  if ! ok brew; then
+    err "Homebrew not found. Install it from https://brew.sh, then re-run."; exit 1
+  fi
+  PKG_UPDATE="brew update"
+  PKG_INSTALL="brew install"
+elif ok apt-get; then
   PKG_UPDATE="sudo apt-get update -qq"
   PKG_INSTALL="sudo apt-get install -y"
 elif ok dnf; then
@@ -140,7 +158,25 @@ fi
 
 # ── Base build tools & git ────────────────────────────────────────────────────
 step "Base build dependencies"
-if [ "$DRY_RUN" = true ]; then
+if [ "$IS_MAC" = true ]; then
+  # git, curl, make and clang (the C compiler for treesitter) ship with the
+  # Xcode Command Line Tools, which are also a prerequisite for Homebrew itself.
+  if ! xcode-select -p >/dev/null 2>&1; then
+    if [ "$DRY_RUN" = true ]; then
+      would "xcode-select --install"
+    else
+      warn "Xcode Command Line Tools not found — launching the installer"
+      xcode-select --install || true
+      err "Finish the Command Line Tools install dialog, then re-run this script"; exit 1
+    fi
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL git curl wget unzip"
+  else
+    $PKG_INSTALL git curl wget unzip
+    log "Base dependencies ready"
+  fi
+elif [ "$DRY_RUN" = true ]; then
   if ok apt-get || ok dnf; then
     would "$PKG_INSTALL git curl wget unzip gcc make"
   elif ok pacman; then
@@ -253,7 +289,14 @@ fi
 # ── Neovim ────────────────────────────────────────────────────────────────────
 step "Neovim"
 if ! ok nvim; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL neovim"
+    else
+      $PKG_INSTALL neovim
+      log "Neovim installed: $(nvim --version | head -1)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "Download and install nvim-linux-${NVIM_ARCH}.tar.gz -> /usr/local/"
   else
     tmp=$(mktemp -d)
@@ -270,7 +313,14 @@ fi
 # ── Zellij ────────────────────────────────────────────────────────────────────
 step "Zellij"
 if ! ok zellij; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL zellij"
+    else
+      $PKG_INSTALL zellij
+      log "Zellij installed: $(zellij --version)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "install_binary_from_tar zellij-org/zellij -> zellij-${ARCH_MUSL}.tar.gz"
   else
     TAG=$(latest_gh_tag "zellij-org/zellij")
@@ -286,7 +336,14 @@ fi
 # ── Bottom (btm) ──────────────────────────────────────────────────────────────
 step "Bottom (btm)"
 if ! ok btm; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL bottom"
+    else
+      $PKG_INSTALL bottom
+      log "Bottom installed: $(btm --version)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "install_binary_from_tar ClementTsang/bottom -> bottom_${ARCH_MUSL}.tar.gz"
   else
     TAG=$(latest_gh_tag "ClementTsang/bottom")
@@ -302,7 +359,14 @@ fi
 # ── fd (Telescope file finder) ────────────────────────────────────────────────
 step "fd"
 if ! ok fd; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL fd"
+    else
+      $PKG_INSTALL fd
+      log "fd installed"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "$PKG_INSTALL fd-find (+ symlink fdfind -> fd on Debian/Ubuntu)"
   else
     if ok apt-get; then
@@ -326,7 +390,14 @@ fi
 # ── eza (modern ls replacement) ──────────────────────────────────────────────
 step "eza"
 if ! ok eza; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL eza"
+    else
+      $PKG_INSTALL eza
+      log "eza installed: $(eza --version | head -1)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "install_binary_from_tar eza-community/eza -> eza_${EZA_ARCH}.tar.gz"
   else
     TAG=$(latest_gh_tag "eza-community/eza")
@@ -341,39 +412,62 @@ fi
 
 # ── FiraCode Nerd Font Mono ───────────────────────────────────────────────────
 step "FiraCode Nerd Font Mono"
-# fc-list/fc-cache come from the fontconfig package, which isn't installed by
-# default on minimal distros (e.g. Raspberry Pi OS/Debian) — install it first
-# so the fc-cache call below doesn't abort the script under set -e.
-if ! ok fc-list; then
-  if [ "$DRY_RUN" = true ]; then
-    would "$PKG_INSTALL fontconfig"
+if [ "$IS_MAC" = true ]; then
+  # macOS has no fontconfig (fc-list/fc-cache); install via the Homebrew cask,
+  # which drops the .ttf files into ~/Library/Fonts.
+  if brew list --cask font-fira-code-nerd-font >/dev/null 2>&1; then
+    log "FiraCode Nerd Font Mono already installed"
+  elif [ "$DRY_RUN" = true ]; then
+    would "$PKG_INSTALL --cask font-fira-code-nerd-font"
   else
-    $PKG_INSTALL fontconfig
-    log "fontconfig installed"
+    $PKG_INSTALL --cask font-fira-code-nerd-font
+    log "FiraCode Nerd Font Mono installed"
   fi
-fi
-
-FONT_DIR="$HOME/.local/share/fonts"
-if ok fc-list && fc-list | grep -qi "FiraCode Nerd"; then
-  log "FiraCode Nerd Font Mono already installed"
-elif [ "$DRY_RUN" = true ]; then
-  would "Download FiraCode.zip from nerd-fonts and install *Mono*.ttf -> $FONT_DIR/"
 else
-  mkdir -p "$FONT_DIR"
-  tmp=$(mktemp -d)
-  curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
-    -o "$tmp/FiraCode.zip"
-  unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
-  cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
-  fc-cache -f "$FONT_DIR"
-  rm -rf "$tmp"
-  log "FiraCode Nerd Font Mono installed"
+  # fc-list/fc-cache come from the fontconfig package, which isn't installed
+  # by default on minimal distros (e.g. Raspberry Pi OS/Debian) — install it
+  # first so the fc-cache call below doesn't abort the script under set -e.
+  if ! ok fc-list; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL fontconfig"
+    else
+      $PKG_INSTALL fontconfig
+      log "fontconfig installed"
+    fi
+  fi
+
+  FONT_DIR="$HOME/.local/share/fonts"
+  if ok fc-list && fc-list | grep -qi "FiraCode Nerd"; then
+    log "FiraCode Nerd Font Mono already installed"
+  elif [ "$DRY_RUN" = true ]; then
+    would "Download FiraCode.zip from nerd-fonts and install *Mono*.ttf -> $FONT_DIR/"
+  else
+    mkdir -p "$FONT_DIR"
+    tmp=$(mktemp -d)
+    curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" \
+      -o "$tmp/FiraCode.zip"
+    unzip -q "$tmp/FiraCode.zip" -d "$tmp/FiraCode"
+    cp "$tmp/FiraCode/"*Mono*.ttf "$FONT_DIR/"
+    fc-cache -f "$FONT_DIR"
+    rm -rf "$tmp"
+    log "FiraCode Nerd Font Mono installed"
+  fi
 fi
 
 # ── tree-sitter CLI (nvim-treesitter parser compilation) ─────────────────────
 step "tree-sitter"
 if ! ok tree-sitter; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    # The Homebrew `tree-sitter` formula is the library only (and is pulled in
+    # as a neovim dependency); the CLI that nvim-treesitter's build hook needs
+    # lives in the separate `tree-sitter-cli` formula, which provides `tree-sitter`.
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL tree-sitter-cli"
+    else
+      $PKG_INSTALL tree-sitter-cli
+      log "tree-sitter installed: $(tree-sitter --version)"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "Download tree-sitter-linux-${TS_ARCH}.gz -> /usr/local/bin/tree-sitter"
   else
     TAG=$(latest_gh_tag "tree-sitter/tree-sitter")
@@ -403,7 +497,14 @@ fi
 # ── bat (modern cat with syntax highlighting) ────────────────────────────────
 step "bat"
 if ! ok bat; then
-  if [ "$DRY_RUN" = true ]; then
+  if [ "$IS_MAC" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      would "$PKG_INSTALL bat"
+    else
+      $PKG_INSTALL bat
+      log "bat installed"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
     would "$PKG_INSTALL bat (+ symlink batcat -> bat on Debian/Ubuntu)"
   else
     if ok apt-get; then
@@ -438,8 +539,18 @@ else
 fi
 
 # ── fzf (fuzzy finder) ───────────────────────────────────────────────────────
+# zshrc sources ~/.fzf.zsh for key-bindings + completion, a file the git
+# installer writes. On macOS fzf comes from Homebrew, so generate that file
+# from `fzf --zsh` instead of cloning a redundant second copy under ~/.fzf.
 step "fzf"
-if [ ! -d "$HOME/.fzf" ]; then
+if [ "$IS_MAC" = true ] && ok fzf; then
+  if [ "$DRY_RUN" = true ]; then
+    would "fzf --zsh > ~/.fzf.zsh (key-bindings + completion for Homebrew fzf)"
+  else
+    fzf --zsh > "$HOME/.fzf.zsh"
+    log "fzf already installed (Homebrew); wrote ~/.fzf.zsh"
+  fi
+elif [ ! -d "$HOME/.fzf" ]; then
   if [ "$DRY_RUN" = true ]; then
     would "git clone --depth=1 https://github.com/junegunn/fzf.git ~/.fzf && ~/.fzf/install"
   else
@@ -553,7 +664,7 @@ if ! grep -q "^theme " "$ZELLIJ_CONFIG" 2>/dev/null; then
       log "Zellij default config written"
     fi
     if grep -q "// theme" "$ZELLIJ_CONFIG" 2>/dev/null; then
-      sed -i "s|// theme.*|theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"|" "$ZELLIJ_CONFIG"
+      sed_i "s|// theme.*|theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"|" "$ZELLIJ_CONFIG"
     else
       echo "" >> "$ZELLIJ_CONFIG"
       echo "theme \"catppuccin-${CATPPUCCIN_FLAVOR}\"" >> "$ZELLIJ_CONFIG"
@@ -639,13 +750,59 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 # Dotfile symlinks (~/.zshrc, ~/.config/nvim/init.lua)
 # ══════════════════════════════════════════════════════════════════════════════
-REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+# Resolve the repo directory portably — BSD readlink (macOS) has no `-f`.
+SCRIPT_SRC="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_SRC" ]; do
+  SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
+  SCRIPT_SRC="$(readlink "$SCRIPT_SRC")"
+  [ "${SCRIPT_SRC#/}" = "$SCRIPT_SRC" ] && SCRIPT_SRC="$SCRIPT_DIR/$SCRIPT_SRC"
+done
+REPO_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
 
 step "Shell config (~/.zshrc)"
 link_dotfile "$REPO_DIR/zshrc" "$HOME/.zshrc"
 
 step "Neovim config"
 link_dotfile "$REPO_DIR/init.lua" "$HOME/.config/nvim/init.lua"
+
+# ── Git config ────────────────────────────────────────────────────────────────
+# The repo owns behavioral config; per-machine identity lives in ~/.gitconfig.local
+# (git-ignored), which the committed gitconfig sources via [include]. Seed it from
+# the existing global identity before the symlink swap replaces ~/.gitconfig.
+step "Git config"
+GITCONFIG_LOCAL="$HOME/.gitconfig.local"
+if [ ! -f "$GITCONFIG_LOCAL" ]; then
+  EXISTING_NAME="$(git config --global user.name 2>/dev/null || true)"
+  EXISTING_EMAIL="$(git config --global user.email 2>/dev/null || true)"
+  if [ "$DRY_RUN" = true ]; then
+    would "Seed $GITCONFIG_LOCAL with [user] name=\"${EXISTING_NAME:-?}\" email=\"${EXISTING_EMAIL:-?}\""
+  else
+    {
+      echo "# Per-machine git identity + overrides. Not tracked by the init repo."
+      echo "[user]"
+      [ -n "$EXISTING_NAME" ]  && echo "	name = $EXISTING_NAME"
+      [ -n "$EXISTING_EMAIL" ] && echo "	email = $EXISTING_EMAIL"
+    } > "$GITCONFIG_LOCAL"
+    if [ -z "$EXISTING_NAME" ] || [ -z "$EXISTING_EMAIL" ]; then
+      warn "Fill in name/email in $GITCONFIG_LOCAL"
+    else
+      log "Seeded $GITCONFIG_LOCAL from existing git identity"
+    fi
+  fi
+else
+  log "$GITCONFIG_LOCAL already exists — leaving identity untouched"
+fi
+link_dotfile "$REPO_DIR/gitconfig" "$HOME/.gitconfig"
+link_dotfile "$REPO_DIR/gitignore" "$HOME/.config/git/ignore"
+
+# ── SSH config ────────────────────────────────────────────────────────────────
+step "SSH config"
+link_dotfile "$REPO_DIR/ssh_config" "$HOME/.ssh/config"
+if [ "$DRY_RUN" = true ]; then
+  would "chmod 600 ~/.ssh/config"
+else
+  chmod 600 "$HOME/.ssh/config" 2>/dev/null || true
+fi
 
 # ── Neovim plugins + treesitter parsers ──────────────────────────────────────
 # Headless nvim run: lazy.nvim installs plugins, nvim-treesitter `build` hook
@@ -658,6 +815,12 @@ elif [ "$DRY_RUN" = true ]; then
 else
   nvim --headless '+Lazy! sync' '+qa' || warn "nvim plugin sync had errors"
   log "Plugins synced and parsers compiled"
+fi
+
+# ── macOS: system defaults + account glue (SSH keychain, gh, OrbStack) ────────
+if [ "$IS_MAC" = true ]; then
+  # shellcheck source=macos.sh
+  source "$REPO_DIR/macos.sh"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -688,4 +851,9 @@ if [ "$DRY_RUN" = false ]; then
   warn "  2. Open nvim — lazy.nvim will auto-install plugins on first launch"
   warn "  3. Catppuccin mocha applied to: starship, zellij, bottom, zsh-syntax-highlighting"
   warn "     (neovim catppuccin is handled by init.lua)"
+  if [ "$IS_MAC" = true ]; then
+    warn "  4. Verify ~/.gitconfig.local has your name + email"
+    warn "  5. gh auth login   (then re-run to register the SSH signing key)"
+    warn "  6. Launch OrbStack once, then: docker run --rm hello-world"
+  fi
 fi

@@ -1,0 +1,10 @@
+# Managed by ~/code/init — symlinked to ~/.ssh/config (mode 600).
+# IgnoreUnknown keeps this file portable: macOS-only keys (UseKeychain) are
+# silently skipped on Linux instead of erroring.
+
+Host *
+	IgnoreUnknown UseKeychain
+	AddKeysToAgent yes
+	UseKeychain yes
+	IdentityFile ~/.ssh/id_ed25519
+	IdentitiesOnly yes

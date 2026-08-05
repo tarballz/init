@@ -1,17 +1,17 @@
 # init
 
-Bootstrap for a fully configured dev environment. Supports Linux (via `init.sh`) and Windows (via `setup.ps1`).
+Bootstrap for a fully configured dev environment. Supports Linux and macOS (via `init.sh`) and Windows (via `setup.ps1`).
 
 ---
 
-## Linux
+## Linux / macOS
 
 ```bash
 git clone git@github.com:tarballz/init.git ~/code/init
 bash ~/code/init/init.sh
 ```
 
-Requires `sudo` for package installation. After it finishes, log out and back in (or run `exec zsh`) to activate zsh as your shell.
+On **Linux** this requires `sudo` for package installation. On **macOS** it uses [Homebrew](https://brew.sh) (no `sudo`); install Homebrew first if you don't have it. After it finishes, log out and back in (or run `exec zsh`) to activate zsh as your shell — on macOS zsh is already the default, so this is usually a no-op.
 
 Pass `--dry-run` to preview all changes without making them:
 
@@ -44,7 +44,26 @@ bash ~/code/init/init.sh --dry-run
 | tree-sitter CLI | latest release binary |
 | gcc, make, git, curl, unzip | system package manager |
 
-Supports apt (Debian/Ubuntu), dnf (Fedora), and pacman (Arch). Supports x86\_64 and arm64.
+Supports apt (Debian/Ubuntu), dnf (Fedora), pacman (Arch), and Homebrew (macOS). Supports x86\_64 and arm64.
+
+On **macOS** every tool is installed through Homebrew (the Linux release-tarball binaries are Linux-only). The FiraCode Nerd Font is installed via the `font-fira-code-nerd-font` cask, and base build tools (git, curl, clang, make) come from the Xcode Command Line Tools, which the script installs if missing.
+
+### macOS-only setup (`macos.sh`)
+
+On macOS, `init.sh` also sources `macos.sh` (run it standalone with `bash macos.sh [--dry-run]`):
+
+- **System `defaults`** — opinionated but reversible: Finder shows extensions / path bar / status
+  bar / list view / POSIX path; `ApplePressAndHoldEnabled=false` (key-repeat works in vim); smart
+  quotes/dashes/autocorrect off; screenshots saved to `~/Screenshots`; save panels expanded.
+- **SSH key → Keychain** — `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`.
+- **GitHub CLI** — warns if `gh` isn't logged in; once authenticated, registers the key as a
+  **signing** key (`gh ssh-key add --type signing`).
+- **OrbStack** — first-launches it so the `docker`/`orb` CLI shims land on PATH.
+
+**Two interactive steps the script can't do headless:**
+
+1. `gh auth login` — then re-run `macos.sh` to register the SSH signing key.
+2. Launch **OrbStack** once and accept its CLI-install prompt, then verify: `docker run --rm hello-world`.
 
 ### What it configures
 
@@ -52,10 +71,26 @@ Supports apt (Debian/Ubuntu), dnf (Fedora), and pacman (Arch). Supports x86\_64 
 
 - `~/.zshrc` → `<repo>/zshrc`
 - `~/.config/nvim/init.lua` → `<repo>/init.lua`
+- `~/.gitconfig` → `<repo>/gitconfig`
+- `~/.config/git/ignore` → `<repo>/gitignore` (global gitignore)
+- `~/.ssh/config` → `<repo>/ssh_config` (chmod 600)
 
 Any pre-existing non-symlink file is backed up to `<path>.backup.<timestamp>` before being replaced.
 
 For per-machine overrides, drop a `~/.zshrc.local` — `zshrc` sources it at the end if it exists.
+
+**Git (`gitconfig`)**
+
+Behavioral config only — `main` default branch, `push.autoSetupRemote`, `fetch.prune`, histogram
+diff, `zdiff3` conflicts, rerere, fsmonitor, and SSH commit signing with `~/.ssh/id_ed25519.pub`.
+Identity is **not** committed: the config `[include]`s `~/.gitconfig.local`, which `init.sh` seeds
+from your existing global `user.name`/`user.email` before swapping the symlink in. Edit that file
+for per-machine identity.
+
+**SSH (`ssh_config`)**
+
+`AddKeysToAgent` + `UseKeychain` so the key passphrase is cached in the macOS Keychain (no more
+retyping). `IgnoreUnknown UseKeychain` keeps the file portable to Linux.
 
 **Shell (`zshrc`)**
 

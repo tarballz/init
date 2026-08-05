@@ -1,0 +1,37 @@
+# Global gitignore — symlinked to ~/.config/git/ignore (git's default global path).
+# Managed by ~/code/init. Project-specific ignores still belong in each repo's .gitignore.
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Editors / IDEs
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-workspace
+
+# Env / secrets / direnv
+.env
+.env.local
+.envrc.local
+.direnv/
+
+# Logs & temp
+*.log
+*.tmp
+
+# Language caches / build dirs commonly left untracked locally
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+node_modules/

@@ -47,6 +47,9 @@ autoload -Uz select-word-style && select-word-style bash
 # ─── Tool integrations ─────────────────────────────────────────────────────────
 command -v starship >/dev/null && eval "$(starship init zsh)"
 command -v zoxide   >/dev/null && eval "$(zoxide init zsh)"
+command -v mise     >/dev/null && eval "$(mise activate zsh)"                 # runtime version manager (go, node, ruby)
+command -v direnv   >/dev/null && eval "$(direnv hook zsh)"                   # per-directory env via .envrc
+command -v uv       >/dev/null && eval "$(uv generate-shell-completion zsh)"  # uv shell completions
 
 # fzf (installer writes ~/.fzf.zsh with key-bindings + completion)
 [ -f "$HOME/.fzf.zsh" ] && source "$HOME/.fzf.zsh"
@@ -97,7 +100,24 @@ alias marimapper_export_2d_map='uv run --project ~/code/marimapper marimapper_ex
 # misc color
 alias grep="grep --color=auto"
 alias diff="diff --color=auto"
-alias ip="ip --color=auto"
+command -v ip >/dev/null && alias ip="ip --color=auto"  # Linux only; macOS has no ip(8)
+
+# ─── Functions ─────────────────────────────────────────────────────────────────
+# aerospace (macOS tiling WM) helpers — defined only when aerospace is installed
+if command -v aerospace >/dev/null; then
+  # Display aerospace keybinds
+  aerokeys() {
+    echo "── main mode ──"
+    awk '/\[mode\.main\.binding\]/{f=1;next} /^\[/{f=0} f && /=/ && !/^#/ {print}' ~/.aerospace.toml | column -t -s'='
+    echo "── service mode ──"
+    awk '/\[mode\.service\.binding\]/{f=1;next} /^\[/{f=0} f && /=/ && !/^#/ {print}' ~/.aerospace.toml | column -t -s'='
+  }
+
+  # Query current workspace layout
+  aerolayout() {
+    aerospace list-windows --focused --format '%{window-parent-container-layout}'
+  }
+fi
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
