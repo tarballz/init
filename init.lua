@@ -241,6 +241,9 @@ local SCROLL_MARGIN = 8
 vim.opt.scrolloff = SCROLL_MARGIN
 vim.opt.sidescrolloff = SCROLL_MARGIN
 
+-- Scroll horizontally a column at a time instead of jumping half a screen
+vim.opt.sidescroll = 1
+
 -- Indentation
 -- -----------
 
@@ -309,6 +312,8 @@ vim.cmd([[autocmd! nvim.popupmenu]])
 local SCROLL_SPEED = 3
 vim.keymap.set({"n", "v", "i"}, "<ScrollWheelUp>",   SCROLL_SPEED .. "<C-y>", { noremap = true, desc = "Scroll viewport up" })
 vim.keymap.set({"n", "v", "i"}, "<ScrollWheelDown>", SCROLL_SPEED .. "<C-e>", { noremap = true, desc = "Scroll viewport down" })
+vim.keymap.set({"n", "v", "i"}, "<ScrollWheelLeft>",  SCROLL_SPEED .. "zh", { noremap = true, desc = "Scroll viewport left" })
+vim.keymap.set({"n", "v", "i"}, "<ScrollWheelRight>", SCROLL_SPEED .. "zl", { noremap = true, desc = "Scroll viewport right" })
 
 -- Smooth sub-line scrolling on wrapped lines (Neovim 0.10+)
 vim.opt.smoothscroll = true
