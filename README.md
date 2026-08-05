@@ -191,3 +191,11 @@ For per-machine overrides, drop a `~/profile.local.ps1` — `profile.ps1` source
 ## Idempotent
 
 Both scripts are safe to re-run. Each step checks whether the tool or config is already present before doing anything.
+
+## Resilient
+
+On `init.sh`, one step failing (network blip, rate-limited GitHub API, a package temporarily
+unavailable) doesn't kill the whole run. Each step is caught individually — a failure prints a
+warning and the script moves on to the rest of the bootstrap. Failed steps are listed in a summary
+at the end (and the script exits non-zero) so you know what to look at; re-running `init.sh`
+retries only what didn't succeed, since already-installed tools/config are no-ops.
