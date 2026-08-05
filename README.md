@@ -110,6 +110,18 @@ retyping). `IgnoreUnknown UseKeychain` keeps the file portable to Linux.
 - zsh-syntax-highlighting — theme sourced in `zshrc`
 - Neovim — handled by `init.lua` via lazy.nvim
 
+**Terminal compatibility check**
+
+`init.sh` checks whether this machine has a terminfo entry for your `$TERM` (SSH forwards it
+from the client). Fresh boxes often lack entries for newer terminals (Ghostty, Kitty, ...) —
+without one, zsh's line editor loses track of the cursor: typed characters land in the wrong
+place, backspace looks broken. If missing, the script prints the fix to run **from your local
+machine** (the one that already has the entry):
+
+```bash
+infocmp -x $TERM | ssh user@host -- tic -x -
+```
+
 ---
 
 ## Windows (PowerShell 7)
