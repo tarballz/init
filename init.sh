@@ -218,6 +218,16 @@ else
   log "zsh is already the default shell"
 fi
 
+# $HOME/.local/bin is where uv, uv-tool-installed CLIs (ruff, pyright), and a
+# few other steps below land their binaries. Export it before the first `ok`
+# check that depends on it — a bare `bash init.sh` over SSH runs non-login, so
+# nothing has put it on PATH yet. Without this, `ok uv` below would report a
+# false negative on every re-run and reinstall uv (and, since ~/.zshrc is a
+# symlink into this repo by the time "Shell config" has run once, each
+# reinstall's installer script would append its shell-env sourcing line
+# straight into the tracked zshrc).
+export PATH="$HOME/.local/bin:$PATH"
+
 # ── uv ────────────────────────────────────────────────────────────────────────
 step "uv"
 if ! ok uv; then
@@ -225,14 +235,11 @@ if ! ok uv; then
     would "curl -LsSf https://astral.sh/uv/install.sh | sh"
   else
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
     log "uv installed"
   fi
 else
   log "uv already installed: $(uv --version)"
 fi
-
-export PATH="$HOME/.local/bin:$PATH"
 
 # ── ruff (via uv tool) ────────────────────────────────────────────────────────
 step "ruff"
