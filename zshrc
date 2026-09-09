@@ -1,6 +1,13 @@
 # ─── PATH ──────────────────────────────────────────────────────────────────────
 export PATH="$HOME/.local/bin:$PATH"
 
+# ─── Builtins ──────────────────────────────────────────────────────────────────
+# Disable the log builtin, so we don't conflict with /usr/bin/log.
+# /etc/zshrc does this too, but only for interactive shells, so non-interactive
+# ones (scripts, Claude Code's shell) still hit the builtin and fail with
+# "log: too many arguments".
+disable log 2>/dev/null
+
 # ─── Environment ───────────────────────────────────────────────────────────────
 export EDITOR=nvim
 export VISUAL=nvim
